@@ -1,90 +1,75 @@
-/** Tipos de dados e base incial de demanda do Faturamento */
+/** Tipos de dados e base inicial de demanda do Faturamento */
 
 export type StatusFaturamento = 'Faturar' | 'Faturado' | 'Auditoria' | 'Pendencia' | 'Glosado';
 
 export type PrioridadeDemanda = 'Alta' | 'Média' | 'Baixa';
 
 export interface DemandaFinanceira {
-    id: string;
-    cliente: string;
-    descricao: string;
-    valor: number;
-    status: StatusFaturamento;
-    prioridade: PrioridadeDemanda;
-    atualizadoHa: string;
+  id: string;
+  cliente: string;
+  descricao: string;
+  valor: number;
+  status: StatusFaturamento;
+  prioridade: PrioridadeDemanda;
+  atualizadoHa: string;
 }
 
-// Mock
+export interface ClientesConvenio {
+  nome: string;
+}
+
+export const CONVENIOS_PADRAO: ClientesConvenio[] = [
+  { nome: 'Bradesco Saúde' },
+  { nome: 'Unimed' },
+  { nome: 'SulAmérica Saúde' },
+  { nome: 'Amil' },
+  { nome: 'Particular' }
+];
+
 export const DEMANDAS_INICIAIS: DemandaFinanceira[] = [
-    {
-        id: 'FAT-000',
-        cliente: 'Bradesco Saúde',
-        descricao: 'Lote de Guias Ambulatoriais 00',
-        valor: 1560.89,
-        status: 'Faturado',
-        prioridade: 'Alta',
-        atualizadoHa: 'Agora mesmo'
-    }, {
-        id: 'FAT-001',
-        cliente: 'Particular',
-        descricao: 'Lote de guias de atendimentos particulares 00',
-        valor: 12621.89,
-        status: 'Pendencia',
-        prioridade: 'Alta',
-        atualizadoHa: 'Há 10 min'
-    },
-    {
-        id: 'FAT-002',
-        cliente: 'Sul América Saúde',
-        descricao: 'Lote de Guias Ambulatoriais 00',
-        valor: 2398.89,
-        status: 'Auditoria',
-        prioridade: 'Baixa',
-        atualizadoHa: 'Há 20 min'
-    },
-    {
-        id: 'FAT-003',
-        cliente: 'Amil Saúde',
-        descricao: 'Lote de Guias Hospitalares 00',
-        valor: 982.89,
-        status: 'Faturado',
-        prioridade: 'Baixa',
-        atualizadoHa: 'Há 25 min'
-    },
-    {
-        id: 'FAT-004',
-        cliente: 'Bradesco Saúde',
-        descricao: 'Lote de Guias Ambulatoriais 01',
-        valor: 1560.89,
-        status: 'Faturar',
-        prioridade: 'Alta',
-        atualizadoHa: 'Há 40 min'
-    },
-    {
-        id: 'FAT-005',
-        cliente: 'Sul América Saúde',
-        descricao: 'Lote de Guias Hospitalares 01',
-        valor: 1560.89,
-        status: 'Pendencia',
-        prioridade: 'Alta',
-        atualizadoHa: 'Há 45 min'
-    },
-    {
-        id: 'FAT-006',
-        cliente: 'Bradesco Saúde',
-        descricao: 'Lote de Guias Hospitalares 02',
-        valor: 10716.89,
-        status: 'Faturado',
-        prioridade: 'Alta',
-        atualizadoHa: 'Há 50 min'
-    },
-    {
-        id: 'FAT-007',
-        cliente: 'Sul América Saúde',
-        descricao: 'Lote de Guias Hospitalares 01',
-        valor: 6524.89,
-        status: 'Glosado',
-        prioridade: 'Média',
-        atualizadoHa: 'Há 55 min'
-    }
-]
+  {
+    id: 'FAT-4821',
+    cliente: 'Bradesco Saúde',
+    descricao: 'Lote Oncologia Ambulatorial #42',
+    valor: 18500.00,
+    status: 'Faturado',
+    prioridade: 'Alta',
+    atualizadoHa: 'Hoje às 09:15'
+  },
+  {
+    id: 'FAT-5190',
+    cliente: 'Unimed',
+    descricao: 'Guias SADT Diagnóstico por Imagem #18',
+    valor: 14200.50,
+    status: 'Faturar',
+    prioridade: 'Alta',
+    atualizadoHa: 'Hoje às 10:30'
+  },
+  {
+    id: 'FAT-6034',
+    cliente: 'SulAmérica Saúde',
+    descricao: 'Internação Clínica Cirúrgica #07',
+    valor: 22400.00,
+    status: 'Auditoria',
+    prioridade: 'Média',
+    atualizadoHa: 'Hoje às 11:45'
+  },
+  {
+    id: 'FAT-7215',
+    cliente: 'Amil',
+    descricao: 'Lote Pronto Atendimento Ortopedia #31',
+    valor: 9850.00,
+    status: 'Pendencia',
+    prioridade: 'Média',
+    atualizadoHa: 'Hoje às 13:20'
+  },
+  {
+    id: 'FAT-8492',
+    cliente: 'Particular',
+    descricao: 'Procedimento Check-up Executivo #12',
+    valor: 6300.00,
+    status: 'Glosado',
+    prioridade: 'Baixa',
+    atualizadoHa: 'Hoje às 14:10'
+  }
+];
