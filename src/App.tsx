@@ -1,918 +1,1071 @@
-import { useState, useEffect, type FormEvent } from 'react';
+import { useState, useEffect } from 'react';
 import {
-  LayoutDashboard, Settings,
-  Radio, DollarSign, Clock, AlertTriangle, CheckCircle2, FileText,
-  Pause, Play, Search, Filter, BarChart3, PieChart as PieChartIcon, Check,
-  RotateCcw,
-  Plus,
-  Trash2,
-  X,
-  Download
-} from 'lucide-react';
-import {
-  ResponsiveContainer, PieChart, Pie, Cell, Tooltip,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  ReferenceLine
-} from 'recharts';
-import {
-  CONVENIOS_PADRAO,
+  OPERADORAS_PADRAO,
   DEMANDAS_INICIAIS,
-  type ClientesConvenio,
+  GUIAS_PARTICULARES_INICIAIS,
+  LOTES_PARTICULARES_ARQUIVADOS_INICIAIS,
+  PROFISSIONAIS_INICIAIS,
+  PACIENTES_INICIAIS,
+  ATENDIMENTOS_INICIAIS,
+  CLIENTES_VIP_INICIAIS,
+  REGRAS_GESTAO_PADRAO,
+  PREFERENCIAS_PADRAO,
+  aplicarCancelamentoAutomaticoAtendimentos,
+  type Operadora,
   type DemandaFinanceira,
+  type GuiaLote,
+  type GuiaParticular,
+  type LoteParticular,
   type PrioridadeDemanda,
-  type StatusFaturamento
+  type StatusFaturamento,
+  type StatusParticular,
+  type StatusLoteParticular,
+  type TipoAtendimentoLote,
+  type HistoricoAlteracaoLote,
+  type Profissional,
+  type Paciente,
+  type Atendimento,
+  type StatusAtendimento,
+  type ClienteVIP,
+  type RegrasGestao,
+  type PreferenciasSistema
 } from './data/dadosFaturamento';
+import { Sidebar, type AbaSistema } from './components/Sidebar';
+import { Header } from './components/Header';
+import { ModalLote } from './components/ModalLote';
+import { ModalRecurso } from './components/ModalRecurso';
+import { VisaoGeralPage } from './pages/VisaoGeralPage';
+import { LotesPage } from './pages/LotesPage';
+import { GuiasPage } from './pages/GuiasPage';
+import { OperadorasPage } from './pages/OperadorasPage';
+import { ParticularesPage } from './pages/ParticularesPage';
+import { AtendimentosPage } from './pages/AtendimentosPage';
+import { Profissionais } from './pages/Profissionais';
+import { PacientesPage } from './pages/PacientesPage';
+import { ClientesPage } from './pages/Clientes';
+import { RelatoriosPage } from './pages/RelatoriosPage';
+import { ConfiguracoesPage } from './pages/ConfiguracoesPage';
 import './index.css';
 
-const CHAVE_DEMANDAS = 'gwaan_demandas_v2';
-const CHAVE_CONVENIOS = 'gwaan_convenios_v2';
-const CHAVE_META = 'gwaan_meta_v1';
-const META_PADRAO = 25000;
+const CHAVE_DEMANDAS = 'gwaan_demandas_v5';
+const CHAVE_OPERADORAS = 'gwaan_operadoras_v4';
+const CHAVE_GUIAS_PARTICULARES = 'gwaan_guias_particulares_v2';
+const CHAVE_LOTES_PARTICULARES = 'gwaan_lotes_particulares_v5';
+const CHAVE_PROFISSIONAIS = 'gwaan_profissionais_v4';
+const CHAVE_PACIENTES = 'gwaan_pacientes_v3';
+const CHAVE_ATENDIMENTOS = 'gwaan_atendimentos_v5';
+const CHAVE_CLIENTES_VIP = 'gwaan_clientes_vip_v1';
+const CHAVE_REGRAS = 'gwaan_regras_v2';
+const CHAVE_PREFERENCIAS = 'gwaan_preferencias_v2';
 
-function formatarMoeda(valor: number): string {
-  return valor.toLocaleString('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-    minimumFractionDigits: 2
-  });
-}
-
-function obterClasseBadge(status: StatusFaturamento): string {
-  switch (status) {
-    case 'Faturar': return 'badge badge-faturar';
-    case 'Faturado': return 'badge badge-faturado';
-    case 'Auditoria': return 'badge badge-auditoria';
-    case 'Pendencia': return 'badge badge-pendente';
-    case 'Glosado': return 'badge badge-glosado';
-    default: return 'badge';
+function lerLocalStorage<T>(chave: string, padrao: T): T {
+  try {
+    const salvo = localStorage.getItem(chave);
+    if (!salvo) return padrao;
+    const parsed = JSON.parse(salvo);
+    if (parsed === null || parsed === undefined) return padrao;
+    if (Array.isArray(padrao)) {
+      if (Array.isArray(parsed)) return parsed as unknown as T;
+      if (
+        typeof parsed === 'object' &&
+        Array.isArray((parsed as { listaAtualizada?: unknown[] }).listaAtualizada)
+      ) {
+        return (parsed as { listaAtualizada: unknown[] })
+          .listaAtualizada as unknown as T;
+      }
+      return padrao;
+    }
+    return parsed as T;
+  } catch {
+    return padrao;
   }
 }
 
+function salvarLocalStorageSeguro<T>(chave: string, valor: T): void {
+  try {
+    localStorage.setItem(chave, JSON.stringify(valor));
+  } catch (erro) {
+    console.warn(`Aviso ao salvar no armazenamento local (${chave}):`, erro);
+  }
+}
+
+function gerarIdUnico(
+  prefixo: string,
+  idsExistentes: string[],
+  min = 1000,
+  max = 9999
+): string {
+  const conjunto = new Set(idsExistentes);
+  for (let tentativa = 0; tentativa < 200; tentativa++) {
+    const num = Math.floor(min + Math.random() * (max - min));
+    const candidato = `${prefixo}-${num}`;
+    if (!conjunto.has(candidato)) return candidato;
+  }
+  return `${prefixo}-${Date.now().toString().slice(-5)}`;
+}
+
 export function App() {
-  const [abaAtiva, setAbaAtiva] = useState<string>('dashboard');
+  const [abaAtiva, setAbaAtiva] = useState<AbaSistema>('dashboard');
+  const [sidebarExpandida, setSidebarExpandida] = useState<boolean>(false);
 
-  const [demandas, setDemandas] = useState<DemandaFinanceira[]>(() => {
-    const dadosSalvos = localStorage.getItem(CHAVE_DEMANDAS);
-    if (dadosSalvos) {
-      try {
-        const parsed = JSON.parse(dadosSalvos);
-        return Array.isArray(parsed) ? parsed : DEMANDAS_INICIAIS;
-      } catch {
-        return DEMANDAS_INICIAIS;
-      }
-    }
-    return DEMANDAS_INICIAIS;
-  });
+  const [demandas, setDemandas] = useState<DemandaFinanceira[]>(() =>
+    lerLocalStorage(CHAVE_DEMANDAS, DEMANDAS_INICIAIS)
+  );
+  const [operadoras, setOperadoras] = useState<Operadora[]>(() =>
+    lerLocalStorage(CHAVE_OPERADORAS, OPERADORAS_PADRAO)
+  );
+  const [guiasParticulares, setGuiasParticulares] = useState<GuiaParticular[]>(() =>
+    lerLocalStorage(CHAVE_GUIAS_PARTICULARES, GUIAS_PARTICULARES_INICIAIS)
+  );
+  const [lotesParticularesArquivados, setLotesParticularesArquivados] = useState<
+    LoteParticular[]
+  >(() =>
+    lerLocalStorage(CHAVE_LOTES_PARTICULARES, LOTES_PARTICULARES_ARQUIVADOS_INICIAIS)
+  );
 
-  const [convenios, setConvenios] = useState<ClientesConvenio[]>(() => {
-    const salvo = localStorage.getItem(CHAVE_CONVENIOS);
-    if (salvo) {
-      try {
-        const parsed = JSON.parse(salvo);
-        return Array.isArray(parsed) && parsed.length > 0 ? parsed : CONVENIOS_PADRAO;
-      } catch {
-        return CONVENIOS_PADRAO;
-      }
-    }
-    return CONVENIOS_PADRAO;
-  });
+  const [profissionais, setProfissionais] = useState<Profissional[]>(() =>
+    lerLocalStorage(CHAVE_PROFISSIONAIS, PROFISSIONAIS_INICIAIS)
+  );
+  const [pacientes, setPacientes] = useState<Paciente[]>(() =>
+    lerLocalStorage(CHAVE_PACIENTES, PACIENTES_INICIAIS)
+  );
+  const [atendimentos, setAtendimentos] = useState<Atendimento[]>(() =>
+    aplicarCancelamentoAutomaticoAtendimentos(
+      lerLocalStorage(CHAVE_ATENDIMENTOS, ATENDIMENTOS_INICIAIS)
+    ).listaAtualizada
+  );
+  const [clientesVip, setClientesVip] = useState<ClienteVIP[]>(() =>
+    lerLocalStorage(CHAVE_CLIENTES_VIP, CLIENTES_VIP_INICIAIS)
+  );
+  const [regrasGestao, setRegrasGestao] = useState<RegrasGestao>(() =>
+    lerLocalStorage(CHAVE_REGRAS, REGRAS_GESTAO_PADRAO)
+  );
+  const [preferencias, setPreferencias] = useState<PreferenciasSistema>(() =>
+    lerLocalStorage(CHAVE_PREFERENCIAS, PREFERENCIAS_PADRAO)
+  );
 
-  const [metaFinanceira, setMetaFinanceira] = useState<number>(() => {
-    const salvo = localStorage.getItem(CHAVE_META);
-    const numero = salvo ? Number(salvo) : META_PADRAO;
-    return !isNaN(numero) && numero > 0 ? numero : META_PADRAO;
-  });
+  const [modalLoteAberto, setModalLoteAberto] = useState<boolean>(false);
+  const [loteSelecionadoId, setLoteSelecionadoId] = useState<string | null>(null);
+  const [loteParaRecurso, setLoteParaRecurso] = useState<DemandaFinanceira | null>(null);
 
-  const [tempoRealAtivo, setTempoRealAtivo] = useState<boolean>(false);
-
-  const [buscaTexto, setBuscaTexto] = useState<string>('');
-  const [filtroStatus, setFiltroStatus] = useState<string>('Todos');
-  const [filtroPrioridade, setFiltroPrioridade] = useState<string>('Todas');
-
-  const [modalAberto, setModalAberto] = useState<boolean>(false);
-  const [novoConvenioGuia, setNovoConvenioGuia] = useState<string>('');
-  const [novaDescricao, setNovaDescricao] = useState<string>('');
-  const [novoValor, setNovoValor] = useState<string>('');
-  const [novoStatus, setNovoStatus] = useState<StatusFaturamento>('Faturar');
-  const [novaPrioridade, setNovaPrioridade] = useState<PrioridadeDemanda>('Média');
-
-  const [modalConfigAberto, setModalConfigAberto] = useState<boolean>(false);
-  const [nomeNovoConvenio, setNomeNovoConvenio] = useState<string>('');
-  const [metaDigitada, setMetaDigitada] = useState<string>(String(metaFinanceira));
-
-  const convenioSelecionadoValido = convenios.some((c) => c.nome === novoConvenioGuia)
-    ? novoConvenioGuia
-    : '';
+  const loteSelecionado = loteSelecionadoId
+    ? demandas.find((d) => d.id === loteSelecionadoId) ?? null
+    : null;
 
   useEffect(() => {
-    localStorage.setItem(CHAVE_DEMANDAS, JSON.stringify(demandas));
+    salvarLocalStorageSeguro(CHAVE_DEMANDAS, demandas);
   }, [demandas]);
 
   useEffect(() => {
-    localStorage.setItem(CHAVE_CONVENIOS, JSON.stringify(convenios));
-  }, [convenios]);
+    salvarLocalStorageSeguro(CHAVE_OPERADORAS, operadoras);
+  }, [operadoras]);
 
   useEffect(() => {
-    localStorage.setItem(CHAVE_META, String(metaFinanceira));
-  }, [metaFinanceira]);
+    salvarLocalStorageSeguro(CHAVE_GUIAS_PARTICULARES, guiasParticulares);
+  }, [guiasParticulares]);
 
   useEffect(() => {
-    if (!tempoRealAtivo) return;
+    salvarLocalStorageSeguro(CHAVE_LOTES_PARTICULARES, lotesParticularesArquivados);
+  }, [lotesParticularesArquivados]);
 
-    const intervalo = setInterval(() => {
-      const tiposLote = ['Lote Automático', 'Guias SADT', 'Internação Clínica', 'Lote Oncologia'];
-      const statusOpcoes: StatusFaturamento[] = ['Faturar', 'Faturado', 'Auditoria', 'Pendencia', 'Glosado'];
-      const prioridades: PrioridadeDemanda[] = ['Alta', 'Média', 'Baixa'];
-      const operadorasDisponiveis = convenios.length > 0 ? convenios : CONVENIOS_PADRAO;
+  useEffect(() => {
+    salvarLocalStorageSeguro(CHAVE_PROFISSIONAIS, profissionais);
+  }, [profissionais]);
 
-      const horarioEntrada = new Date().toLocaleTimeString('pt-BR');
+  useEffect(() => {
+    salvarLocalStorageSeguro(CHAVE_PACIENTES, pacientes);
+  }, [pacientes]);
 
-      const novaDemanda: DemandaFinanceira = {
-        id: `FAT-${Math.floor(1050 + Math.random() * 8950)}`,
-        cliente: operadorasDisponiveis[Math.floor(Math.random() * operadorasDisponiveis.length)].nome,
-        descricao: `${tiposLote[Math.floor(Math.random() * tiposLote.length)]} #${Math.floor(10 + Math.random() * 89)}`,
-        valor: Math.floor(150 + Math.random() * 15000),
-        status: statusOpcoes[Math.floor(Math.random() * statusOpcoes.length)],
-        prioridade: prioridades[Math.floor(Math.random() * prioridades.length)],
-        atualizadoHa: `Às ${horarioEntrada}`
-      };
+  useEffect(() => {
+    salvarLocalStorageSeguro(CHAVE_ATENDIMENTOS, atendimentos);
+  }, [atendimentos]);
 
-      setDemandas((listaAnterior) => [novaDemanda, ...listaAnterior.slice(0, 24)]);
-    }, 6000);
+  useEffect(() => {
+    salvarLocalStorageSeguro(CHAVE_CLIENTES_VIP, clientesVip);
+  }, [clientesVip]);
 
-    return () => clearInterval(intervalo);
-  }, [tempoRealAtivo, convenios]);
+  useEffect(() => {
+    salvarLocalStorageSeguro(CHAVE_REGRAS, regrasGestao);
+  }, [regrasGestao]);
+
+  useEffect(() => {
+    salvarLocalStorageSeguro(CHAVE_PREFERENCIAS, preferencias);
+    if (preferencias.modoEscuro) {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+    }
+  }, [preferencias]);
+
+  function pedirConfirmacaoExclusao(mensagem: string): boolean {
+    if (!preferencias.confirmarExclusao) return true;
+    return confirm(mensagem);
+  }
 
   function alterarStatusDemanda(idAlvo: string, statusDestino: StatusFaturamento) {
-    const horarioAtual = new Date().toLocaleTimeString('pt-BR');
+    const agora = new Date();
+    const agoraISO = agora.toISOString();
+    const dataHoraFormatada = `${agora.toLocaleDateString('pt-BR')} às ${agora.toLocaleTimeString(
+      'pt-BR',
+      {
+        hour: '2-digit',
+        minute: '2-digit'
+      }
+    )}`;
+
+    setDemandas((listaAnterior) =>
+      listaAnterior.map((item) => {
+        if (item.id !== idAlvo) return item;
+        const novoEvento: HistoricoAlteracaoLote = {
+          id: `HL-${Date.now()}`,
+          dataHora: dataHoraFormatada,
+          acao: `Alteração de Status para ${statusDestino}`,
+          detalhes: `Status do lote alterado de ${item.status} para ${statusDestino}.`
+        };
+        return {
+          ...item,
+          status: statusDestino,
+          dataAlteracaoOuEnvio: agoraISO,
+          atualizadoHa: agoraISO,
+          faturasEmitidas:
+            statusDestino === 'Faturada' || statusDestino === 'Enviada',
+          faturasEmitidasEm:
+            statusDestino === 'Faturada' || statusDestino === 'Enviada'
+              ? item.faturasEmitidasEm || dataHoraFormatada
+              : undefined,
+          historicoLote: [novoEvento, ...(item.historicoLote ?? [])]
+        };
+      })
+    );
+  }
+
+  function salvarLoteOperadora(dados: {
+    id?: string;
+    codigoCustomizado?: string;
+    operadora: string;
+    descricao: string;
+    tipoAtendimento: TipoAtendimentoLote;
+    dataCriacao: string;
+    dataAlteracaoOuEnvio: string;
+    valor: number;
+    status: StatusFaturamento;
+    prioridade: PrioridadeDemanda;
+    guias: GuiaLote[];
+    observacoes: string;
+    historicoLote: HistoricoAlteracaoLote[];
+    faturasEmitidasEm?: string;
+    motivoUltimaExclusaoFatura?: string;
+  }) {
+    const somaGuias = dados.guias.reduce((acc, g) => acc + g.valor, 0);
+
+    if (dados.id) {
+      setDemandas((listaAnterior) =>
+        listaAnterior.map((item) =>
+          item.id === dados.id
+            ? {
+                ...item,
+                operadora: item.operadora,
+                descricao: dados.descricao,
+                tipoAtendimento: item.tipoAtendimento,
+                dataCriacao: dados.dataCriacao,
+                dataAlteracaoOuEnvio: dados.dataAlteracaoOuEnvio,
+                valor: somaGuias,
+                status: dados.status,
+                prioridade: dados.prioridade,
+                guias: dados.guias,
+                observacoes: dados.observacoes,
+                historicoLote: dados.historicoLote,
+                faturasEmitidas:
+                  dados.status === 'Faturada' || dados.status === 'Enviada',
+                faturasEmitidasEm: dados.faturasEmitidasEm,
+                motivoUltimaExclusaoFatura: dados.motivoUltimaExclusaoFatura,
+                atualizadoHa: dados.dataAlteracaoOuEnvio
+              }
+            : item
+        )
+      );
+      setLoteSelecionadoId(dados.id);
+    } else {
+      const idNovo =
+        dados.codigoCustomizado &&
+        !demandas.some((d) => d.id === dados.codigoCustomizado)
+          ? dados.codigoCustomizado
+          : gerarIdUnico(
+              'FAT',
+              demandas.map((d) => d.id)
+            );
+
+      const novoLote: DemandaFinanceira = {
+        id: idNovo,
+        operadora: dados.operadora,
+        descricao: dados.descricao,
+        tipoAtendimento: dados.tipoAtendimento,
+        dataCriacao: dados.dataCriacao,
+        dataAlteracaoOuEnvio: dados.dataAlteracaoOuEnvio,
+        valor: somaGuias,
+        status: dados.status,
+        prioridade: dados.prioridade,
+        guias: dados.guias,
+        observacoes: dados.observacoes,
+        historicoLote: dados.historicoLote,
+        faturasEmitidas:
+          dados.status === 'Faturada' || dados.status === 'Enviada',
+        faturasEmitidasEm: dados.faturasEmitidasEm,
+        motivoUltimaExclusaoFatura: dados.motivoUltimaExclusaoFatura,
+        categoria: 'Operadora',
+        atualizadoHa: dados.dataAlteracaoOuEnvio
+      };
+
+      setDemandas((listaAnterior) => [novoLote, ...listaAnterior]);
+      setLoteSelecionadoId(idNovo);
+    }
+  }
+
+  function excluirDemanda(idAlvo: string) {
+    if (!pedirConfirmacaoExclusao('Deseja realmente excluir este lote?')) return;
+    setDemandas((listaAnterior) => listaAnterior.filter((item) => item.id !== idAlvo));
+  }
+
+  function salvarRecursoLote(idLote: string, motivo: string) {
+    const horarioAtual = new Date().toLocaleTimeString('pt-BR', {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    const dataHoje = new Date().toLocaleDateString('pt-BR');
+    const agoraISO = new Date().toISOString();
 
     setDemandas((listaAnterior) =>
       listaAnterior.map((item) =>
+        item.id === idLote
+          ? {
+              ...item,
+              recurso: {
+                motivo,
+                dataAbertura: `${dataHoje} às ${horarioAtual}`
+              },
+              dataAlteracaoOuEnvio: agoraISO,
+              atualizadoHa: agoraISO
+            }
+          : item
+      )
+    );
+
+    setLoteParaRecurso(null);
+  }
+
+  function editarGuiaTussConsolidada(
+    guiaId: string,
+    dados: { codigoTuss: string; descricao: string; valor: number }
+  ) {
+    setAtendimentos((ant) =>
+      aplicarCancelamentoAutomaticoAtendimentos(
+        ant.map((atd) =>
+          atd.id === guiaId
+            ? {
+                ...atd,
+                codigoTuss: dados.codigoTuss,
+                descricao: dados.descricao,
+                valor: dados.valor
+              }
+            : atd
+        )
+      ).listaAtualizada
+    );
+
+    setDemandas((ant) =>
+      ant.map((lote) => {
+        const possui = lote.guias.some(
+          (g) => g.id === guiaId || g.atendimentoId === guiaId
+        );
+        if (!possui) return lote;
+        const novasGuias = lote.guias.map((g) =>
+          g.id === guiaId || g.atendimentoId === guiaId
+            ? {
+                ...g,
+                codigoTuss: dados.codigoTuss,
+                procedimento: dados.descricao,
+                valor: dados.valor
+              }
+            : g
+        );
+        const novoTotal = novasGuias.reduce((acc, g) => acc + g.valor, 0);
+        return {
+          ...lote,
+          guias: novasGuias,
+          valor: novoTotal
+        };
+      })
+    );
+  }
+
+  function cancelarGuiaTussConsolidada(guiaId: string) {
+    setAtendimentos((ant) =>
+      ant.map((atd) =>
+        atd.id === guiaId
+          ? { ...atd, status: 'Cancelado', guiaCancelada: true }
+          : atd
+      )
+    );
+
+    setDemandas((ant) =>
+      ant.map((lote) => {
+        const possui = lote.guias.some(
+          (g) => g.id === guiaId || g.atendimentoId === guiaId
+        );
+        if (!possui) return lote;
+        return {
+          ...lote,
+          guias: lote.guias.map((g) =>
+            g.id === guiaId || g.atendimentoId === guiaId
+              ? { ...g, statusGuia: 'Cancelada' }
+              : g
+          )
+        };
+      })
+    );
+  }
+
+  function excluirGuiaTussConsolidada(guiaId: string) {
+    if (!pedirConfirmacaoExclusao(`Deseja realmente excluir a guia ${guiaId}?`)) {
+      return;
+    }
+
+    setAtendimentos((ant) => ant.filter((atd) => atd.id !== guiaId));
+
+    setDemandas((ant) =>
+      ant.map((lote) => {
+        const possui = lote.guias.some(
+          (g) => g.id === guiaId || g.atendimentoId === guiaId
+        );
+        if (!possui) return lote;
+        const novasGuias = lote.guias.filter(
+          (g) => g.id !== guiaId && g.atendimentoId !== guiaId
+        );
+        const novoTotal = novasGuias.reduce((acc, g) => acc + g.valor, 0);
+        return {
+          ...lote,
+          guias: novasGuias,
+          valor: novoTotal
+        };
+      })
+    );
+  }
+
+  function adicionarOperadora(dados: Omit<Operadora, 'id'>) {
+    const novoId = gerarIdUnico(
+      'OP',
+      operadoras.map((o) => o.id),
+      10,
+      99
+    );
+    const novaOp: Operadora = {
+      id: novoId,
+      nome: dados.nome,
+      cnpj: dados.cnpj,
+      datasEnvio: dados.datasEnvio
+    };
+    setOperadoras((listaAnterior) => [...listaAnterior, novaOp]);
+  }
+
+  function editarOperadora(operadoraAtualizada: Operadora) {
+    const operadoraAntiga = operadoras.find((op) => op.id === operadoraAtualizada.id);
+    setOperadoras((listaAnterior) =>
+      listaAnterior.map((op) =>
+        op.id === operadoraAtualizada.id ? operadoraAtualizada : op
+      )
+    );
+
+    if (operadoraAntiga && operadoraAntiga.nome !== operadoraAtualizada.nome) {
+      setDemandas((listaAnterior) =>
+        listaAnterior.map((d) =>
+          d.operadora === operadoraAntiga.nome
+            ? { ...d, operadora: operadoraAtualizada.nome }
+            : d
+        )
+      );
+      setAtendimentos((listaAnterior) =>
+        listaAnterior.map((a) =>
+          a.operadora === operadoraAntiga.nome
+            ? { ...a, operadora: operadoraAtualizada.nome }
+            : a
+        )
+      );
+    }
+  }
+
+  function removerOperadora(idAlvo: string) {
+    if (operadoras.length <= 1) {
+      alert('Não é possível remover a única operadora cadastrada!');
+      return;
+    }
+    if (!pedirConfirmacaoExclusao('Deseja realmente excluir esta operadora?')) return;
+    setOperadoras((listaAnterior) => listaAnterior.filter((op) => op.id !== idAlvo));
+  }
+
+  function salvarGuiaParticular(
+    dados: Omit<GuiaParticular, 'id' | 'atualizadoEm'> & { id?: string }
+  ) {
+    const agoraISO = new Date().toISOString();
+
+    if (dados.id) {
+      const guiaExistente = guiasParticulares.find((g) => g.id === dados.id);
+      if (guiaExistente?.status === 'Fechado') {
+        alert('Guias com status Fechado não podem ser editadas!');
+        return;
+      }
+
+      setGuiasParticulares((listaAnterior) =>
+        listaAnterior.map((item) =>
+          item.id === dados.id
+            ? {
+                ...dados,
+                id: dados.id,
+                atualizadoEm: agoraISO
+              }
+            : item
+        )
+      );
+    } else {
+      const novaGuia: GuiaParticular = {
+        ...dados,
+        id: gerarIdUnico(
+          'GPART',
+          guiasParticulares.map((g) => g.id)
+        ),
+        atualizadoEm: agoraISO
+      };
+      setGuiasParticulares((listaAnterior) => [novaGuia, ...listaAnterior]);
+    }
+  }
+
+  function alterarStatusGuiaParticular(idAlvo: string, novoStatus: StatusParticular) {
+    const guiaExistente = guiasParticulares.find((g) => g.id === idAlvo);
+    if (guiaExistente?.status === 'Fechado') {
+      alert('Guias com status Fechado já estão em lote e não podem ser alteradas!');
+      return;
+    }
+
+    const agoraISO = new Date().toISOString();
+    setGuiasParticulares((listaAnterior) =>
+      listaAnterior.map((item) =>
         item.id === idAlvo
-          ? { ...item, status: statusDestino, atualizadoHa: `Alterado às ${horarioAtual}` }
+          ? {
+              ...item,
+              status: novoStatus,
+              atualizadoEm: agoraISO
+            }
           : item
       )
     );
   }
 
-  function adicionarNovaGuia(evento: FormEvent) {
-    evento.preventDefault();
+  function excluirGuiaParticular(idAlvo: string) {
+    if (!pedirConfirmacaoExclusao('Deseja realmente excluir esta guia particular?')) {
+      return;
+    }
+    setGuiasParticulares((listaAnterior) =>
+      listaAnterior.filter((item) => item.id !== idAlvo)
+    );
+  }
 
-    const valorNumerico = parseFloat(novoValor);
-    if (!convenioSelecionadoValido || !novaDescricao.trim() || isNaN(valorNumerico) || valorNumerico <= 0) {
-      alert('Preencha os dados corretamente!');
+  function salvarLoteParticular(dados: {
+    id?: string;
+    descricao: string;
+    prioridade: PrioridadeDemanda;
+    guiasIds: string[];
+    status: StatusLoteParticular;
+    observacoes: string;
+  }) {
+    const agoraISO = new Date().toISOString();
+    const hojeISO = agoraISO.slice(0, 10);
+
+    if (dados.id) {
+      const loteAlvo = lotesParticularesArquivados.find((l) => l.id === dados.id);
+      if (!loteAlvo) return;
+
+      const idsUnificados = Array.from(
+        new Set([...loteAlvo.guiasIds, ...dados.guiasIds])
+      );
+      const somaTotal = guiasParticulares
+        .filter((g) => idsUnificados.includes(g.id))
+        .reduce((acc, g) => acc + g.valor, 0);
+
+      setLotesParticularesArquivados((ant) =>
+        ant.map((l) =>
+          l.id === dados.id
+            ? {
+                ...l,
+                descricao: dados.descricao,
+                prioridade: dados.prioridade,
+                status: dados.status,
+                dataFechamento:
+                  dados.status === 'Fechado' ? agoraISO : l.dataFechamento,
+                guiasIds: idsUnificados,
+                valorTotal: somaTotal,
+                observacoes: dados.observacoes
+              }
+            : l
+        )
+      );
+
+      setGuiasParticulares((ant) =>
+        ant.map((g) =>
+          idsUnificados.includes(g.id)
+            ? {
+                ...g,
+                status: 'Fechado',
+                loteId: dados.id,
+                atualizadoEm: agoraISO
+              }
+            : g
+        )
+      );
       return;
     }
 
-    const horarioAtual = new Date().toLocaleTimeString('pt-BR');
-    const guiaCriada: DemandaFinanceira = {
-      id: `FAT-${Math.floor(1000 + Math.random() * 9000)}`,
-      cliente: convenioSelecionadoValido,
-      descricao: novaDescricao.trim(),
-      valor: valorNumerico,
-      status: novoStatus,
-      prioridade: novaPrioridade,
-      atualizadoHa: `Criado às ${horarioAtual}`
-    };
-
-    setDemandas((listaAnterior) => [guiaCriada, ...listaAnterior]);
-
-    setNovoConvenioGuia('');
-    setNovaDescricao('');
-    setNovoValor('');
-    setModalAberto(false);
-  }
-
-  function excluirDemanda(idAlvo: string) {
-    if (!confirm('Deseja realmente excluir a demanda?')) return;
-    setDemandas((listaAnterior) => listaAnterior.filter((item) => item.id !== idAlvo));
-  }
-
-  function adicionarConvenio(evento: FormEvent) {
-    evento.preventDefault();
-    const nomeLimpo = nomeNovoConvenio.trim();
-    if (!nomeLimpo) return;
-
-    if (convenios.some((c) => c.nome.toLowerCase() === nomeLimpo.toLowerCase())) {
-      alert('Convênio já cadastrado!');
-      return;
-    }
-
-    setConvenios((listaAnterior) => [{ nome: nomeLimpo }, ...listaAnterior]);
-    setNovoConvenioGuia(nomeLimpo);
-    setNomeNovoConvenio('');
-  }
-
-  function removerConvenio(nomeAlvo: string) {
-    if (convenios.length <= 1) {
-      alert('Não é possível remover o único convênio cadastrado!');
-      return;
-    }
-    setConvenios((listaAnterior) => {
-      const novaLista = listaAnterior.filter((c) => c.nome !== nomeAlvo);
-      if (novoConvenioGuia === nomeAlvo) {
-        setNovoConvenioGuia('');
-      }
-      return novaLista;
-    });
-  }
-
-  function salvarNovaMeta(evento: FormEvent) {
-    evento.preventDefault();
-
-    const valorMeta = parseFloat(metaDigitada);
-    if (isNaN(valorMeta) || valorMeta <= 0) {
-      alert('Digite um valor válido e maior que 0!');
-      return;
-    }
-
-    setMetaFinanceira(valorMeta);
-    setModalConfigAberto(false);
-    setAbaAtiva('dashboard');
-  }
-
-  function restaurarDadosIniciais() {
-    localStorage.removeItem(CHAVE_DEMANDAS);
-    localStorage.removeItem(CHAVE_CONVENIOS);
-    localStorage.removeItem(CHAVE_META);
-    setDemandas(DEMANDAS_INICIAIS);
-    setConvenios(CONVENIOS_PADRAO);
-    setNovoConvenioGuia('');
-    setMetaFinanceira(META_PADRAO);
-    setMetaDigitada(String(META_PADRAO));
-  }
-
-  const demandasFiltradas = demandas.filter((demanda) => {
-    const termo = buscaTexto.toLocaleLowerCase();
-    const bateTexto =
-      demanda.id.toLocaleLowerCase().includes(termo) ||
-      demanda.cliente.toLocaleLowerCase().includes(termo) ||
-      demanda.descricao.toLocaleLowerCase().includes(termo);
-    const bateStatus = filtroStatus === 'Todos' || demanda.status === filtroStatus;
-    const batePrioridade = filtroPrioridade === 'Todas' || demanda.prioridade === filtroPrioridade;
-
-    return bateTexto && bateStatus && batePrioridade;
-  });
-
-  function exportarCSV() {
-    if (demandasFiltradas.length === 0) {
-      alert('Não há guias para serem exportadas!');
-      return;
-    }
-
-    const cabecalho = [
-      'Código',
-      'Convênio / Cliente',
-      'Descrição do Lote',
-      'Prioridade',
-      'Valor (R$)',
-      'Status',
-      'Última Atualização'
-    ];
-
-    const escaparCelula = (valor: string | number) =>
-      `"${String(valor).replace(/"/g, '""')}"`;
-
-    const linhas = demandasFiltradas.map((item) =>
-      [
-        escaparCelula(item.id),
-        escaparCelula(item.cliente),
-        escaparCelula(item.descricao),
-        escaparCelula(item.prioridade),
-        escaparCelula(item.valor.toFixed(2).replace('.', ',')),
-        escaparCelula(item.status),
-        escaparCelula(item.atualizadoHa)
-      ].join(';')
+    const idNovoLote = gerarIdUnico(
+      'LPART',
+      lotesParticularesArquivados.map((l) => l.id),
+      500,
+      999
     );
 
-    const conteudoCSV = '\uFEFF' + [cabecalho.join(';'), ...linhas].join('\r\n');
-    const blob = new Blob([conteudoCSV], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
+    const somaTotal = guiasParticulares
+      .filter((g) => dados.guiasIds.includes(g.id))
+      .reduce((acc, g) => acc + g.valor, 0);
 
+    const novoLote: LoteParticular = {
+      id: idNovoLote,
+      descricao: dados.descricao,
+      dataCriacao: hojeISO,
+      dataFechamento: agoraISO,
+      prioridade: dados.prioridade,
+      status: dados.status,
+      guiasIds: dados.guiasIds,
+      valorTotal: somaTotal,
+      observacoes: dados.observacoes
+    };
+
+    setLotesParticularesArquivados((ant) => [novoLote, ...ant]);
+
+    setGuiasParticulares((ant) =>
+      ant.map((g) =>
+        dados.guiasIds.includes(g.id)
+          ? {
+              ...g,
+              status: 'Fechado',
+              loteId: idNovoLote,
+              atualizadoEm: agoraISO
+            }
+          : g
+      )
+    );
+  }
+
+  function excluirLoteParticularArquivado(idAlvo: string) {
+    if (
+      !pedirConfirmacaoExclusao(
+        'Deseja realmente excluir este lote particular?'
+      )
+    ) {
+      return;
+    }
+    setLotesParticularesArquivados((ant) => ant.filter((l) => l.id !== idAlvo));
+    setGuiasParticulares((ant) =>
+      ant.map((g) =>
+        g.loteId === idAlvo ? { ...g, loteId: undefined, status: 'Pago' } : g
+      )
+    );
+  }
+
+  function salvarProfissional(
+    dados: Omit<Profissional, 'id'> & { id?: string }
+  ) {
+    if (dados.id) {
+      setProfissionais((listaAnterior) =>
+        listaAnterior.map((p) =>
+          p.id === dados.id ? { ...dados, id: dados.id } : p
+        )
+      );
+      setAtendimentos((listaAnterior) =>
+        listaAnterior.map((a) =>
+          a.medicoId === dados.id
+            ? {
+                ...a,
+                medicoNome: dados.nome,
+                especialidade: dados.especialidade || a.especialidade
+              }
+            : a
+        )
+      );
+    } else {
+      const novoProfissional: Profissional = {
+        ...dados,
+        id: gerarIdUnico(
+          'PRF',
+          profissionais.map((p) => p.id),
+          105,
+          999
+        )
+      };
+      setProfissionais((listaAnterior) => [novoProfissional, ...listaAnterior]);
+    }
+  }
+
+  function excluirProfissional(idAlvo: string) {
+    if (profissionais.length <= 1) {
+      alert('Mantenha pelo menos um profissional cadastrado no sistema!');
+      return;
+    }
+    if (
+      !pedirConfirmacaoExclusao(
+        'Deseja realmente excluir este profissional da empresa?'
+      )
+    ) {
+      return;
+    }
+    setProfissionais((listaAnterior) =>
+      listaAnterior.filter((p) => p.id !== idAlvo)
+    );
+  }
+
+  function salvarPaciente(dados: Omit<Paciente, 'id'> & { id?: string }) {
+    if (dados.id) {
+      setPacientes((listaAnterior) =>
+        listaAnterior.map((p) =>
+          p.id === dados.id ? { ...dados, id: dados.id } : p
+        )
+      );
+      const nomeCompleto = `${dados.nome} ${dados.sobrenome}`.trim();
+      setAtendimentos((listaAnterior) =>
+        listaAnterior.map((a) =>
+          a.pacienteId === dados.id ? { ...a, pacienteNome: nomeCompleto } : a
+        )
+      );
+    } else {
+      const novoPaciente: Paciente = {
+        ...dados,
+        id: gerarIdUnico(
+          'PAC',
+          pacientes.map((p) => p.id),
+          2005,
+          9999
+        )
+      };
+      setPacientes((listaAnterior) => [novoPaciente, ...listaAnterior]);
+    }
+  }
+
+  function cadastrarPacienteRapido(dados: Omit<Paciente, 'id'>): Paciente {
+    const novoPaciente: Paciente = {
+      ...dados,
+      id: gerarIdUnico(
+        'PAC',
+        pacientes.map((p) => p.id),
+        2005,
+        9999
+      )
+    };
+    setPacientes((listaAnterior) => [novoPaciente, ...listaAnterior]);
+    return novoPaciente;
+  }
+
+  function excluirPaciente(idAlvo: string) {
+    if (pacientes.length <= 1) {
+      alert('Mantenha pelo menos um paciente cadastrado no sistema!');
+      return;
+    }
+    if (!pedirConfirmacaoExclusao('Deseja realmente excluir este paciente?')) return;
+    setPacientes((listaAnterior) => listaAnterior.filter((p) => p.id !== idAlvo));
+  }
+
+  function salvarAtendimento(dados: Omit<Atendimento, 'id'> & { id?: string }) {
+    if (dados.id) {
+      setAtendimentos((listaAnterior) =>
+        aplicarCancelamentoAutomaticoAtendimentos(
+          listaAnterior.map((a) =>
+            a.id === dados.id ? { ...dados, id: dados.id } : a
+          )
+        ).listaAtualizada
+      );
+    } else {
+      const novoAtd: Atendimento = {
+        ...dados,
+        id: gerarIdUnico(
+          'ATD',
+          atendimentos.map((a) => a.id),
+          910,
+          9999
+        )
+      };
+      setAtendimentos((listaAnterior) =>
+        aplicarCancelamentoAutomaticoAtendimentos([novoAtd, ...listaAnterior])
+          .listaAtualizada
+      );
+    }
+  }
+
+  function alterarStatusAtendimento(
+    idAlvo: string,
+    novoStatus: StatusAtendimento
+  ) {
+    setAtendimentos((listaAnterior) =>
+      aplicarCancelamentoAutomaticoAtendimentos(
+        listaAnterior.map((a) =>
+          a.id === idAlvo ? { ...a, status: novoStatus } : a
+        )
+      ).listaAtualizada
+    );
+  }
+
+  function excluirAtendimento(idAlvo: string) {
+    if (!pedirConfirmacaoExclusao('Deseja realmente excluir este atendimento?')) return;
+    setAtendimentos((listaAnterior) =>
+      listaAnterior.filter((a) => a.id !== idAlvo)
+    );
+  }
+
+  function salvarClienteVip(dados: Omit<ClienteVIP, 'id'> & { id?: string }) {
+    if (dados.id) {
+      setClientesVip((listaAnterior) =>
+        listaAnterior.map((c) =>
+          c.id === dados.id ? { ...dados, id: dados.id } : c
+        )
+      );
+    } else {
+      const novoCliente: ClienteVIP = {
+        ...dados,
+        id: gerarIdUnico(
+          'VIP',
+          clientesVip.map((c) => c.id),
+          500,
+          999
+        )
+      };
+      setClientesVip((listaAnterior) => [novoCliente, ...listaAnterior]);
+    }
+  }
+
+  function excluirClienteVip(idAlvo: string) {
+    if (clientesVip.length <= 1) {
+      alert('Mantenha pelo menos um cliente VIP cadastrado no sistema!');
+      return;
+    }
+    if (
+      !pedirConfirmacaoExclusao(
+        'Deseja realmente excluir este cliente VIP / Influencer?'
+      )
+    ) {
+      return;
+    }
+    setClientesVip((listaAnterior) =>
+      listaAnterior.filter((c) => c.id !== idAlvo)
+    );
+  }
+
+  function exportarBackupJSON() {
+    const backup = {
+      geradoEm: new Date().toISOString(),
+      demandas,
+      operadoras,
+      guiasParticulares,
+      lotesParticularesArquivados,
+      profissionais,
+      pacientes,
+      atendimentos,
+      clientesVip,
+      regrasGestao,
+      preferencias
+    };
+
+    const blob = new Blob([JSON.stringify(backup, null, 2)], {
+      type: 'application/json;charset=utf-8;'
+    });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    const dataHoje = new Date().toISOString().slice(0, 10);
     link.href = url;
-    link.setAttribute('download', `gwaan-demandas-${dataHoje}.csv`);
+    link.setAttribute(
+      'download',
+      `gwaan-backup-${new Date().toISOString().slice(0, 10)}.json`
+    );
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
   }
 
-  const valorTotalGeral = demandas.reduce((soma, item) => soma + item.valor, 0);
-  const demandasParaFaturar = demandas.filter((d) => d.status === 'Faturar');
-  const totalFaturar = demandasParaFaturar.reduce((soma, item) => soma + item.valor, 0);
-  const totalFaturado = demandas.filter((d) => d.status === 'Faturado').reduce((soma, item) => soma + item.valor, 0);
-  const totalAuditoria = demandas.filter((d) => d.status === 'Auditoria').reduce((soma, item) => soma + item.valor, 0);
-  const totalPendencia = demandas.filter((d) => d.status === 'Pendencia').reduce((soma, item) => soma + item.valor, 0);
-  const totalGlosado = demandas.filter((d) => d.status === 'Glosado').reduce((soma, item) => soma + item.valor, 0);
-  const percentualMeta = metaFinanceira > 0 ? Math.round((totalFaturado / metaFinanceira) * 100) : 0;
-  const larguraBarraMeta = Math.min(100, Math.max(0, percentualMeta));
-
-  const dadosGraficoStatus = [
-    { name: 'Faturar', valor: totalFaturar, cor: '#A1BC98' },
-    { name: 'Faturado', valor: totalFaturado, cor: '#778873' },
-    { name: 'Auditoria', valor: totalAuditoria, cor: '#3b82f6' },
-    { name: 'Pendencia', valor: totalPendencia, cor: '#d97706' },
-    { name: 'Glosado', valor: totalGlosado, cor: '#dc2626' },
-  ];
-
-  const clientesLista: string[] = Array.from(
-    new Set([
-      ...convenios.map((c) => c.nome),
-      ...demandas.map((d) => d.cliente)
-    ])
-  );
-
-  const dadosGraficosClientes = clientesLista.map((nomeCl) => {
-    const somaCl = demandas
-      .filter((d) => d.cliente === nomeCl)
-      .reduce((soma, item) => soma + item.valor, 0);
-    const nomeCurto = nomeCl.replace(/\s*Saúde$/i, '').trim() || nomeCl;
-    return { cliente: nomeCurto, valor: somaCl };
-  });
-
   return (
-    <div className="app-container">
-      <aside className="sidebar">
-        <div className="brand-title">
-          <img
-            src="/favicon.svg"
-            alt="Logo Gwaan Analytics"
-            className="brand-logo"
-          />
-          <span>Gwaan Analytics</span>
-        </div>
-
-        <nav>
-          <ul className="nav-list">
-            <li
-              className={`nav-item ${abaAtiva === 'dashboard' && !modalConfigAberto ? 'active' : ''}`}
-              onClick={() => {
-                setAbaAtiva('dashboard');
-                setModalConfigAberto(false);
-              }}
-            >
-              <LayoutDashboard size={20} />
-              <span>Visão Geral</span>
-            </li>
-            <li
-              className={`nav-item ${modalConfigAberto ? 'active' : ''}`}
-              onClick={() => {
-                setAbaAtiva('configuracoes');
-                setMetaDigitada(String(metaFinanceira));
-                setModalConfigAberto(true);
-              }}
-            >
-              <Settings size={20} />
-              <span>Configurações</span>
-            </li>
-          </ul>
-        </nav>
-      </aside>
+    <div
+      className={`app-container ${sidebarExpandida ? 'sidebar-expanded' : ''} ${
+        preferencias.tabelaCompacta ? 'table-compact' : ''
+      }`}
+    >
+      <Sidebar
+        abaAtiva={abaAtiva}
+        expandida={sidebarExpandida}
+        aoAlternarExpansao={() => setSidebarExpandida((ant) => !ant)}
+        aoSelecionarAba={(aba) => setAbaAtiva(aba)}
+      />
 
       <div className="main-content">
-        <header className="header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              color: tempoRealAtivo ? '#778873' : '#b45309',
-              fontWeight: 600,
-              fontSize: '0.9rem'
-            }}>
-              <Radio size={18} />
-              <span>{tempoRealAtivo ? 'Simulação Ativada (Guia a cada 6s)' : 'Simulação Pausada'}</span>
-            </div>
+        <Header />
 
-            <button
-              className="btn-realtime"
-              onClick={() => setTempoRealAtivo(!tempoRealAtivo)}
-            >
-              {tempoRealAtivo ? <Pause size={15} /> : <Play size={15} />}
-              <span>{tempoRealAtivo ? 'Pausar' : 'Retomar'}</span>
-            </button>
+        {abaAtiva === 'dashboard' && (
+          <VisaoGeralPage
+            demandas={demandas}
+            metaFinanceira={regrasGestao.metaPorOperadora}
+            aoAlterarStatus={alterarStatusDemanda}
+            aoEditarDemanda={(demanda) => {
+              setLoteSelecionadoId(demanda.id);
+              setModalLoteAberto(true);
+            }}
+            aoAbrirRecurso={(demanda) => setLoteParaRecurso(demanda)}
+            aoExcluirDemanda={excluirDemanda}
+          />
+        )}
 
-            <button
-              className="btn-realtime"
-              title="Restaurar dados e configurações de fábrica"
-              onClick={restaurarDadosIniciais}
-            >
-              <RotateCcw size={15} />
-              <span>Restaurar Padrão</span>
-            </button>
-          </div>
+        {abaAtiva === 'guias' && (
+          <GuiasPage
+            atendimentos={atendimentos}
+            demandas={demandas}
+            pacientes={pacientes}
+            medicos={profissionais}
+            operadoras={operadoras}
+            aoEditarGuiaTuss={editarGuiaTussConsolidada}
+            aoCancelarGuiaTuss={cancelarGuiaTussConsolidada}
+            aoExcluirGuiaTuss={excluirGuiaTussConsolidada}
+          />
+        )}
 
-          <a
-            href="https://www.linkedin.com/in/luiz-felipe-de-almeida-pimentel/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="user-profile user-profile-link"
-            title="Acessar perfil de Luiz Felipe no LinkedIn"
-          >
-            <div style={{ textAlign: 'right' }}>
-              <p style={{ fontWeight: 600, fontSize: '0.95rem' }}>Luiz Felipe</p>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>Analista de Sistemas</p>
-            </div>
-            <img
-              src="/imagens/profile.jpg"
-              alt="Foto de Perfil de Luiz Felipe"
-              className="user-avatar"
-            />
-          </a>
-        </header>
+        {abaAtiva === 'lotes' && (
+          <LotesPage
+            demandas={demandas}
+            operadoras={operadoras}
+            aoAbrirNovoLote={() => {
+              setLoteSelecionadoId(null);
+              setModalLoteAberto(true);
+            }}
+            aoSelecionarLote={(lote) => {
+              setLoteSelecionadoId(lote.id);
+              setModalLoteAberto(true);
+            }}
+            aoAbrirRecurso={(lote) => setLoteParaRecurso(lote)}
+            aoAlterarStatus={alterarStatusDemanda}
+            aoExcluirDemanda={excluirDemanda}
+          />
+        )}
 
-        <main className="dashboard-body">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-            <div>
-              <h1 style={{ fontSize: '1.75rem', marginBottom: '0.35rem' }}>
-                Monitoramento de Faturamento
-              </h1>
-              <p style={{ color: 'var(--text-secondary)' }}>
-                Dados salvos automaticamente no navegador • Meta: <strong>{formatarMoeda(metaFinanceira)}</strong>
-              </p>
-            </div>
+        {abaAtiva === 'particulares' && (
+          <ParticularesPage
+            atendimentos={atendimentos}
+            guiasParticulares={guiasParticulares}
+            lotesParticularesArquivados={lotesParticularesArquivados}
+            aoSalvarGuiaParticular={salvarGuiaParticular}
+            aoAlterarStatusGuiaParticular={alterarStatusGuiaParticular}
+            aoExcluirGuiaParticular={excluirGuiaParticular}
+            aoSalvarLoteParticular={salvarLoteParticular}
+            aoExcluirLoteParticularArquivado={excluirLoteParticularArquivado}
+          />
+        )}
 
-            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-              <button
-                className="btn-outline"
-                onClick={exportarCSV}
-                title="Exportar lista filtrada para CSV"
-              >
-                <Download size={16} />
-                <span>Exportar CSV</span>
-              </button>
+        {abaAtiva === 'atendimentos' && (
+          <AtendimentosPage
+            atendimentos={atendimentos}
+            pacientes={pacientes}
+            medicos={profissionais}
+            operadoras={operadoras}
+            aoSalvarAtendimento={salvarAtendimento}
+            aoCadastrarPacienteRapido={cadastrarPacienteRapido}
+            aoAlterarStatusAtendimento={alterarStatusAtendimento}
+            aoExcluirAtendimento={excluirAtendimento}
+          />
+        )}
 
-              <button className="btn-primary" onClick={() => setModalAberto(true)}>
-                <Plus size={18} />
-                <span>Nova Guia Manual</span>
-              </button>
-            </div>
-          </div>
+        {abaAtiva === 'pacientes' && (
+          <PacientesPage
+            pacientes={pacientes}
+            atendimentos={atendimentos}
+            medicos={profissionais}
+            operadoras={operadoras}
+            aoSalvarPaciente={salvarPaciente}
+            aoExcluirPaciente={excluirPaciente}
+            aoSalvarAtendimento={salvarAtendimento}
+          />
+        )}
 
-          <section className="kpi-grid">
-            <div className="kpi-card">
-              <div className="kpi-header">
-                <span>Contas para Faturar</span>
-                <FileText size={20} color="#778873" />
-              </div>
-              <div className="kpi-value">{formatarMoeda(totalFaturar)}</div>
-              <div className="kpi-subtitle">
-                {demandasParaFaturar.length} {demandasParaFaturar.length === 1 ? 'guia pronta' : 'guias prontas'} para envio
-              </div>
-            </div>
+        {abaAtiva === 'profissionais' && (
+          <Profissionais
+            profissionais={profissionais}
+            atendimentos={atendimentos}
+            pacientes={pacientes}
+            operadoras={operadoras}
+            aoSalvarProfissional={salvarProfissional}
+            aoExcluirProfissional={excluirProfissional}
+            aoSalvarAtendimento={salvarAtendimento}
+          />
+        )}
 
-            <div className="kpi-card">
-              <div className="kpi-header">
-                <span>Receita Faturada</span>
-                <CheckCircle2 size={20} color="#778873" />
-              </div>
-              <div className="kpi-value">{formatarMoeda(totalFaturado)}</div>
-              <div className="meta-progress-wrapper">
-                <div className="meta-progress-track">
-                  <div
-                    className="meta-progress-fill"
-                    style={{ width: `${larguraBarraMeta}%` }}
-                  />
-                </div>
-                <div className="meta-progress-label">
-                  <span>{percentualMeta}% da meta atingida</span>
-                </div>
-              </div>
-            </div>
+        {abaAtiva === 'operadoras' && (
+          <OperadorasPage
+            operadoras={operadoras}
+            demandas={demandas}
+            aoAdicionarOperadora={adicionarOperadora}
+            aoEditarOperadora={editarOperadora}
+            aoRemoverOperadora={removerOperadora}
+          />
+        )}
 
-            <div className="kpi-card">
-              <div className="kpi-header">
-                <span>Em Auditoria / Pendente</span>
-                <Clock size={20} color="#3b82f6" />
-              </div>
-              <div className="kpi-value">{formatarMoeda(totalAuditoria + totalPendencia)}</div>
-              <div className="kpi-subtitle">Aguardando liberação ou envio</div>
-            </div>
+        {abaAtiva === 'clientes' && (
+          <ClientesPage
+            clientesVip={clientesVip}
+            profissionais={profissionais}
+            aoSalvarClienteVip={salvarClienteVip}
+            aoExcluirClienteVip={excluirClienteVip}
+          />
+        )}
 
-            <div className="kpi-card">
-              <div className="kpi-header">
-                <span>Valor Glosado / Retido</span>
-                <AlertTriangle size={20} color="#dc2626" />
-              </div>
-              <div className="kpi-value">{formatarMoeda(totalGlosado)}</div>
-              <div className="kpi-subtitle">Exige recurso ou correção</div>
-            </div>
+        {abaAtiva === 'relatorios' && (
+          <RelatoriosPage
+            demandasOperadoras={demandas}
+            guiasParticulares={guiasParticulares}
+            operadoras={operadoras}
+            atendimentos={atendimentos}
+            medicos={profissionais}
+            pacientes={pacientes}
+            regrasGestao={regrasGestao}
+            aoSalvarRegras={setRegrasGestao}
+          />
+        )}
 
-            <div className="kpi-card">
-              <div className="kpi-header">
-                <span>Volume Total Processado</span>
-                <DollarSign size={20} color="#778873" />
-              </div>
-              <div className="kpi-value">{formatarMoeda(valorTotalGeral)}</div>
-              <div className="kpi-subtitle">{demandas.length} lotes salvos na base</div>
-            </div>
-          </section>
-
-          <section className="charts-grid">
-            <div className="chart-card">
-              <div className="chart-title">
-                <PieChartIcon size={20} color="#778873" />
-                <span>Distribuição Financeira por Status</span>
-              </div>
-
-              <div className="chart-wrapper">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={dadosGraficoStatus}
-                      dataKey="valor"
-                      nameKey="name"
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={60}
-                      outerRadius={90}
-                      paddingAngle={4}
-                    >
-                      {dadosGraficoStatus.map((item, index) => (
-                        <Cell key={`cell-${index}`} fill={item.cor} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      formatter={(valor) => formatarMoeda(Number(valor ?? 0))}
-                      contentStyle={{ backgroundColor: '#FAFBF5', borderColor: '#A1BC98', borderRadius: '8px', color: '#2C352B' }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-
-              <div className="chart-legend">
-                {dadosGraficoStatus.map((item) => (
-                  <div className="legend-item" key={item.name}>
-                    <span className="legend-dot" style={{ backgroundColor: item.cor }} />
-                    <span>{item.name}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="chart-card">
-              <div className="chart-title">
-                <BarChart3 size={20} color="#778873" />
-                <span>Volume por Convênio vs. Meta ({formatarMoeda(metaFinanceira)})</span>
-              </div>
-
-              <div className="chart-wrapper">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={dadosGraficosClientes} margin={{ top: 20, right: 15, left: 10, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#D2DCB6" vertical={false} />
-                    <XAxis dataKey="cliente" stroke="#5A6B57" fontSize={12} />
-                    <YAxis
-                      stroke="#5A6B57"
-                      fontSize={12}
-                      tickFormatter={(valor) => `R$ ${(Number(valor) / 1000).toFixed(0)}k`}
-                    />
-                    <Tooltip
-                      formatter={(valor) => [formatarMoeda(Number(valor ?? 0)), 'Volume']}
-                      contentStyle={{ backgroundColor: '#FAFBF5', borderColor: '#A1BC98', borderRadius: '8px', color: '#2C352B' }}
-                    />
-                    <ReferenceLine
-                      y={metaFinanceira}
-                      stroke="#5A6B57"
-                      strokeDasharray="4 4"
-                      strokeWidth={2}
-                      label={{ value: `Meta ${formatarMoeda(metaFinanceira)}`, position: 'top', fill: '#5A6B57', fontSize: 12 }}
-                    />
-                    <Bar dataKey="valor" fill="#778873" radius={[6, 6, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </section>
-
-          <section className="demandas-section">
-            <div className="filters-bar">
-              <div>
-                <h2 style={{ fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Filter size={18} color="#778873" />
-                  <span>Fila de Guias e Lotes Processados</span>
-                </h2>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '0.2rem' }}>
-                  Exibindo {demandasFiltradas.length} de {demandas.length} guias armazenadas.
-                </p>
-              </div>
-
-              <div className="filters-controls">
-                <div className="search-box">
-                  <Search size={16} color="#5A6B57" />
-                  <input
-                    type="text"
-                    placeholder="Buscar guia, convênio ou lote..."
-                    value={buscaTexto}
-                    onChange={(e) => setBuscaTexto(e.target.value)}
-                  />
-                </div>
-
-                <select
-                  className="filter-select"
-                  value={filtroStatus}
-                  onChange={(e) => setFiltroStatus(e.target.value)}
-                >
-                  <option value="Todos">Status: Todos</option>
-                  <option value="Faturar">Faturar</option>
-                  <option value="Faturado">Faturado</option>
-                  <option value="Auditoria">Em Auditoria</option>
-                  <option value="Pendencia">Pendente</option>
-                  <option value="Glosado">Glosado</option>
-                </select>
-
-                <select
-                  className="filter-select"
-                  value={filtroPrioridade}
-                  onChange={(e) => setFiltroPrioridade(e.target.value)}
-                >
-                  <option value="Todas">Prioridade: Todas</option>
-                  <option value="Alta">Alta</option>
-                  <option value="Média">Média</option>
-                  <option value="Baixa">Baixa</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="table-container">
-              <table className="demandas-table">
-                <thead>
-                  <tr>
-                    <th>Código</th>
-                    <th>Convênio / Cliente</th>
-                    <th>Descrição do Lote</th>
-                    <th>Prioridade</th>
-                    <th>Valor</th>
-                    <th>Status</th>
-                    <th>Última Atualização</th>
-                    <th>Ações Rápidas</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {demandasFiltradas.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '2rem' }}>
-                        Nenhuma guia encontrada para os filtros selecionados.
-                      </td>
-                    </tr>
-                  ) : (
-                    demandasFiltradas.map((item) => (
-                      <tr key={item.id}>
-                        <td style={{ fontWeight: 700, color: '#778873' }}>{item.id}</td>
-                        <td style={{ fontWeight: 500 }}>{item.cliente}</td>
-                        <td style={{ color: 'var(--text-secondary)' }}>{item.descricao}</td>
-                        <td>{item.prioridade}</td>
-                        <td style={{ fontWeight: 600 }}>{formatarMoeda(item.valor)}</td>
-                        <td>
-                          <span className={obterClasseBadge(item.status)}>
-                            {item.status}
-                          </span>
-                        </td>
-                        <td style={{ color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
-                          {item.atualizadoHa}
-                        </td>
-                        <td>
-                          <div className="action-buttons">
-                            {item.status !== 'Faturado' && (
-                              <button
-                                className="btn-action"
-                                title="Aprovar e Faturar Lote"
-                                onClick={() => alterarStatusDemanda(item.id, 'Faturado')}
-                              >
-                                <Check size={14} />
-                                <span>Faturar</span>
-                              </button>
-                            )}
-                            {item.status === 'Pendencia' && (
-                              <button
-                                className="btn-action"
-                                onClick={() => alterarStatusDemanda(item.id, 'Auditoria')}
-                              >
-                                <span>Auditar</span>
-                              </button>
-                            )}
-                            <button
-                              className="btn-danger"
-                              title="Excluir Guia"
-                              onClick={() => excluirDemanda(item.id)}
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </main>
+        {abaAtiva === 'configuracoes' && (
+          <ConfiguracoesPage
+            preferencias={preferencias}
+            aoAtualizarPreferencias={setPreferencias}
+            aoExportarBackupJSON={exportarBackupJSON}
+          />
+        )}
       </div>
 
-      {modalAberto && (
-        <div className="modal-overlay">
-          <div className="modal-content">
-            <div className="modal-header">
-              <h3 style={{ fontSize: '1.2rem' }}>Cadastrar Nova Guia / Lote</h3>
-              <button
-                className="btn-realtime"
-                onClick={() => setModalAberto(false)}
-                style={{ padding: '0.3rem 0.5rem' }}
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <form onSubmit={adicionarNovaGuia} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div className="form-group">
-                <label>Operadora / Convênio</label>
-                <select
-                  className="form-input"
-                  value={convenioSelecionadoValido}
-                  onChange={(e) => setNovoConvenioGuia(e.target.value)}
-                  required
-                >
-                  <option value="" disabled>
-                    {convenios.length === 0 ? 'Cadastre um Cliente/Operadora' : 'Escolha a Operadora'}
-                  </option>
-                  {convenios.map((convenio) => (
-                    <option key={convenio.nome} value={convenio.nome}>
-                      {convenio.nome}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label>Descrição do Lote ou Guia</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="Ex: Lote Quimioterapia Ambulatorial #92"
-                  value={novaDescricao}
-                  onChange={(e) => setNovaDescricao(e.target.value)}
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label>Valor Financeiro (R$)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="1"
-                  className="form-input"
-                  placeholder="Ex: 12500.00"
-                  value={novoValor}
-                  onChange={(e) => setNovoValor(e.target.value)}
-                  required
-                />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                <div className="form-group">
-                  <label>Status Inicial</label>
-                  <select
-                    className="form-input"
-                    value={novoStatus}
-                    onChange={(e) => setNovoStatus(e.target.value as StatusFaturamento)}
-                  >
-                    <option value="Faturar">Faturar</option>
-                    <option value="Pendencia">Pendente</option>
-                    <option value="Auditoria">Em Auditoria</option>
-                    <option value="Faturado">Faturado</option>
-                    <option value="Glosado">Glosado</option>
-                  </select>
-                </div>
-
-                <div className="form-group">
-                  <label>Prioridade</label>
-                  <select
-                    className="form-input"
-                    value={novaPrioridade}
-                    onChange={(e) => setNovaPrioridade(e.target.value as PrioridadeDemanda)}
-                  >
-                    <option value="Alta">Alta</option>
-                    <option value="Média">Média</option>
-                    <option value="Baixa">Baixa</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn-realtime"
-                  onClick={() => setModalAberto(false)}
-                >
-                  Cancelar
-                </button>
-                <button type="submit" className="btn-primary">
-                  Salvar Guia
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {modalLoteAberto && (
+        <ModalLote
+          operadoras={operadoras}
+          atendimentos={atendimentos}
+          loteInicial={loteSelecionado}
+          aoFechar={() => {
+            setModalLoteAberto(false);
+            setLoteSelecionadoId(null);
+          }}
+          aoSalvar={salvarLoteOperadora}
+          aoAbrirRecurso={(lote) => setLoteParaRecurso(lote)}
+        />
       )}
 
-      {modalConfigAberto && (
-        <div className="modal-overlay">
-          <div className="modal-content">
-            <div className="modal-header">
-              <h3 style={{ fontSize: '1.2rem' }}>Configurações do Painel</h3>
-              <button
-                className="btn-realtime"
-                onClick={() => {
-                  setModalConfigAberto(false);
-                  setAbaAtiva('dashboard');
-                }}
-                style={{ padding: '0.3rem 0.5rem' }}
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <form onSubmit={salvarNovaMeta} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <div className="form-group">
-                <label>Meta Financeira por Convênio (R$)</label>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <input
-                    type="number"
-                    step="100"
-                    min="1"
-                    className="form-input"
-                    style={{ flex: 1 }}
-                    value={metaDigitada}
-                    onChange={(e) => setMetaDigitada(e.target.value)}
-                    required
-                  />
-                  <button type="submit" className="btn-primary">
-                    Salvar Meta
-                  </button>
-                </div>
-              </div>
-            </form>
-
-            <hr className="divisor-modal" />
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <form onSubmit={adicionarConvenio} className="form-group">
-                <label>Cadastrar Novo Convênio / Operadora</label>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <input
-                    type="text"
-                    className="form-input"
-                    style={{ flex: 1 }}
-                    placeholder="Ex: Bradesco Saúde"
-                    value={nomeNovoConvenio}
-                    onChange={(e) => setNomeNovoConvenio(e.target.value)}
-                  />
-                  <button type="submit" className="btn-outline">
-                    <Plus size={16} />
-                    <span>Adicionar</span>
-                  </button>
-                </div>
-              </form>
-
-              <div>
-                <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
-                  Convênios Cadastrados ({convenios.length})
-                </span>
-                <div className="convenios-list">
-                  {convenios.map((c) => (
-                    <div key={c.nome} className="convenio-item">
-                      <span>{c.nome}</span>
-                      <button
-                        type="button"
-                        className="btn-danger"
-                        title="Remover convênio"
-                        onClick={() => removerConvenio(c.nome)}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="modal-footer">
-              <button
-                type="button"
-                className="btn-realtime"
-                onClick={() => {
-                  setModalConfigAberto(false);
-                  setAbaAtiva('dashboard');
-                }}
-              >
-                Fechar
-              </button>
-            </div>
-          </div>
-        </div>
+      {loteParaRecurso && (
+        <ModalRecurso
+          lote={loteParaRecurso}
+          aoFechar={() => setLoteParaRecurso(null)}
+          aoSalvarRecurso={salvarRecursoLote}
+        />
       )}
     </div>
   );
