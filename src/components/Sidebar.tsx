@@ -15,8 +15,7 @@ import {
   ChevronUp,
   Receipt,
   FileText,
-  Briefcase,
-  Sparkles
+  Briefcase
 } from 'lucide-react';
 
 export type AbaSistema =
@@ -28,7 +27,6 @@ export type AbaSistema =
   | 'lotes'
   | 'profissionais'
   | 'operadoras'
-  | 'clientes'
   | 'relatorios'
   | 'configuracoes';
 
@@ -53,7 +51,7 @@ export function Sidebar({
   const equipeAtiva =
     abaAtiva === 'profissionais' ||
     abaAtiva === 'operadoras' ||
-    abaAtiva === 'clientes';
+    abaAtiva === 'pacientes';
 
   return (
     <aside className="sidebar">
@@ -68,7 +66,7 @@ export function Sidebar({
       </button>
 
       <div className="sidebar-top-row">
-        <div className="brand-title" title="Gwaan Analytics">
+        <div className="brand-title" title="Gwaan Analytics — Faturamento Hospitalar">
           <img
             src="/favicon.svg"
             alt="Logo Gwaan Analytics"
@@ -83,7 +81,7 @@ export function Sidebar({
           <li
             className={`nav-item ${abaAtiva === 'dashboard' ? 'active' : ''}`}
             onClick={() => aoSelecionarAba('dashboard')}
-            title="Visão Geral"
+            title="Torre de Faturamento"
           >
             <LayoutDashboard size={20} style={{ flexShrink: 0 }} />
             <span>Visão Geral</span>
@@ -92,31 +90,21 @@ export function Sidebar({
           <li
             className={`nav-item ${abaAtiva === 'atendimentos' ? 'active' : ''}`}
             onClick={() => aoSelecionarAba('atendimentos')}
-            title="Atendimentos"
+            title="Consultas Realizadas (CONS-nº)"
           >
             <CalendarCheck size={20} style={{ flexShrink: 0 }} />
-            <span>Atendimentos</span>
-          </li>
-
-          <li
-            className={`nav-item ${abaAtiva === 'pacientes' ? 'active' : ''}`}
-            onClick={() => aoSelecionarAba('pacientes')}
-            title="Pacientes"
-          >
-            <Users size={20} style={{ flexShrink: 0 }} />
-            <span>Pacientes</span>
+            <span>Consultas</span>
           </li>
 
           <li className="nav-group">
             <div
-              className={`nav-item nav-group-trigger ${
-                faturamentoAtivo && !faturamentoAberto ? 'active' : ''
-              }`}
+              className={`nav-item nav-group-trigger ${faturamentoAtivo && !faturamentoAberto ? 'active' : ''
+                }`}
               onClick={() => setFaturamentoAberto((ant) => !ant)}
-              title="Faturamento (Guias, Particulares e Lotes)"
+              title="Faturamento TISS (Guias G-nº, Faturas FAT-nº, Lotes LOTE-nº e Particulares)"
             >
               <Receipt size={20} style={{ flexShrink: 0 }} />
-              <span>Faturamento</span>
+              <span>Faturamento TISS</span>
               {expandida && (
                 <span className="nav-group-chevron">
                   {faturamentoAberto ? (
@@ -131,36 +119,33 @@ export function Sidebar({
             {faturamentoAberto && (
               <ul className="nav-sublist">
                 <li
-                  className={`nav-item nav-subitem ${
-                    abaAtiva === 'guias' ? 'active' : ''
-                  }`}
+                  className={`nav-item nav-subitem ${abaAtiva === 'guias' ? 'active' : ''
+                    }`}
                   onClick={() => aoSelecionarAba('guias')}
-                  title="Guias TUSS / Faturamento"
+                  title="Guias de Consulta (G-nº)"
                 >
                   <FileText size={17} style={{ flexShrink: 0 }} />
-                  <span>Guias</span>
+                  <span>Guias de Consulta</span>
                 </li>
 
                 <li
-                  className={`nav-item nav-subitem ${
-                    abaAtiva === 'particulares' ? 'active' : ''
-                  }`}
-                  onClick={() => aoSelecionarAba('particulares')}
-                  title="Particulares"
-                >
-                  <UserCheck size={17} style={{ flexShrink: 0 }} />
-                  <span>Particulares</span>
-                </li>
-
-                <li
-                  className={`nav-item nav-subitem ${
-                    abaAtiva === 'lotes' ? 'active' : ''
-                  }`}
+                  className={`nav-item nav-subitem ${abaAtiva === 'lotes' ? 'active' : ''
+                    }`}
                   onClick={() => aoSelecionarAba('lotes')}
-                  title="Lotes"
+                  title="Lotes (LOTE-nº), Faturas (FAT-nº) e Glosas"
                 >
                   <Layers size={17} style={{ flexShrink: 0 }} />
-                  <span>Lotes</span>
+                  <span>Lotes & Faturas</span>
+                </li>
+
+                <li
+                  className={`nav-item nav-subitem ${abaAtiva === 'particulares' ? 'active' : ''
+                    }`}
+                  onClick={() => aoSelecionarAba('particulares')}
+                  title="Consultas Particulares (Cobrança na Clínica)"
+                >
+                  <UserCheck size={17} style={{ flexShrink: 0 }} />
+                  <span>Particulares / NF</span>
                 </li>
               </ul>
             )}
@@ -168,14 +153,13 @@ export function Sidebar({
 
           <li className="nav-group">
             <div
-              className={`nav-item nav-group-trigger ${
-                equipeAtiva && !equipeAberta ? 'active' : ''
-              }`}
+              className={`nav-item nav-group-trigger ${equipeAtiva && !equipeAberta ? 'active' : ''
+                }`}
               onClick={() => setEquipeAberta((ant) => !ant)}
-              title="Equipe (Profissionais, Operadoras e Clientes VIP)"
+              title="Cadastros Base de Faturamento (Operadoras, Corpo Clínico e Beneficiários)"
             >
               <Briefcase size={20} style={{ flexShrink: 0 }} />
-              <span>Equipe</span>
+              <span>Cadastros Base</span>
               {expandida && (
                 <span className="nav-group-chevron">
                   {equipeAberta ? (
@@ -190,36 +174,33 @@ export function Sidebar({
             {equipeAberta && (
               <ul className="nav-sublist">
                 <li
-                  className={`nav-item nav-subitem ${
-                    abaAtiva === 'profissionais' ? 'active' : ''
-                  }`}
-                  onClick={() => aoSelecionarAba('profissionais')}
-                  title="Profissionais da Empresa"
-                >
-                  <Stethoscope size={17} style={{ flexShrink: 0 }} />
-                  <span>Profissionais</span>
-                </li>
-
-                <li
-                  className={`nav-item nav-subitem ${
-                    abaAtiva === 'operadoras' ? 'active' : ''
-                  }`}
+                  className={`nav-item nav-subitem ${abaAtiva === 'operadoras' ? 'active' : ''
+                    }`}
                   onClick={() => aoSelecionarAba('operadoras')}
-                  title="Operadoras"
+                  title="Operadoras de Saúde (Convênios ANS)"
                 >
                   <Building2 size={17} style={{ flexShrink: 0 }} />
-                  <span>Operadoras</span>
+                  <span>Operadoras ANS</span>
                 </li>
 
                 <li
-                  className={`nav-item nav-subitem ${
-                    abaAtiva === 'clientes' ? 'active' : ''
-                  }`}
-                  onClick={() => aoSelecionarAba('clientes')}
-                  title="Clientes VIP e Influencers (Marketing)"
+                  className={`nav-item nav-subitem ${abaAtiva === 'profissionais' ? 'active' : ''
+                    }`}
+                  onClick={() => aoSelecionarAba('profissionais')}
+                  title="Corpo Clínico Executante e Repasse Médico"
                 >
-                  <Sparkles size={17} style={{ flexShrink: 0 }} />
-                  <span>Clientes</span>
+                  <Stethoscope size={17} style={{ flexShrink: 0 }} />
+                  <span>Corpo Clínico</span>
+                </li>
+
+                <li
+                  className={`nav-item nav-subitem ${abaAtiva === 'pacientes' ? 'active' : ''
+                    }`}
+                  onClick={() => aoSelecionarAba('pacientes')}
+                  title="Beneficiários e Elegibilidade de Carteirinhas"
+                >
+                  <Users size={17} style={{ flexShrink: 0 }} />
+                  <span>Beneficiários</span>
                 </li>
               </ul>
             )}
@@ -228,10 +209,10 @@ export function Sidebar({
           <li
             className={`nav-item ${abaAtiva === 'relatorios' ? 'active' : ''}`}
             onClick={() => aoSelecionarAba('relatorios')}
-            title="Relatórios e Avaliação de Desempenho"
+            title="Relatórios Executivos e Auditoria de Metas"
           >
             <FileBarChart2 size={20} style={{ flexShrink: 0 }} />
-            <span>Relatórios</span>
+            <span>Relatórios & BI</span>
           </li>
         </ul>
 

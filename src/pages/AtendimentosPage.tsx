@@ -1,19 +1,22 @@
 import { useState } from 'react';
 import {
   CalendarCheck,
-  Plus,
   Search,
-  Pencil,
-  Clock,
+  FolderOpen,
   CheckCircle2,
-  XCircle
+  FileText,
+  DollarSign,
+  Layers,
+  Plus
 } from 'lucide-react';
-import type {
-  Atendimento,
-  Operadora,
-  Paciente,
-  Profissional,
-  StatusAtendimento
+import {
+  extrairGuiasDaConsulta,
+  type Atendimento,
+  type DemandaFinanceira,
+  type Operadora,
+  type Paciente,
+  type Profissional,
+  type StatusAtendimento
 } from '../data/dadosFaturamento';
 import {
   formatarDataBR,
@@ -34,6 +37,7 @@ import {
 
 interface AtendimentosPageProps {
   atendimentos: Atendimento[];
+  demandas?: DemandaFinanceira[];
   pacientes: Paciente[];
   medicos: Profissional[];
   operadoras: Operadora[];
@@ -47,18 +51,17 @@ const ITENS_POR_PAGINA_ATD = 12;
 
 export function AtendimentosPage({
   atendimentos,
+  demandas = [],
   pacientes,
   medicos,
   operadoras,
   aoSalvarAtendimento,
   aoCadastrarPacienteRapido,
-  aoAlterarStatusAtendimento,
   aoExcluirAtendimento
 }: AtendimentosPageProps) {
   const [painelFiltrosAberto, setPainelFiltrosAberto] = useState<boolean>(false);
   const [buscaTexto, setBuscaTexto] = useState<string>('');
   const [filtroOperadora, setFiltroOperadora] = useState<string>('Todas');
-  const [filtroStatus, setFiltroStatus] = useState<string>('Todos');
   const [filtroData, setFiltroData] = useState<string>('');
   const [paginaAtual, setPaginaAtual] = useState<number>(1);
 
@@ -69,34 +72,40 @@ export function AtendimentosPage({
   const [guiaTussParaVisualizar, setGuiaTussParaVisualizar] =
     useState<Atendimento | null>(null);
 
+  const apenasRealizados = atendimentos.filter((a) => a.status === 'Realizado');
+
   const qtdFiltrosAtivos =
     (buscaTexto.trim() ? 1 : 0) +
     (filtroOperadora !== 'Todas' ? 1 : 0) +
-    (filtroStatus !== 'Todos' ? 1 : 0) +
     (filtroData ? 1 : 0);
 
   function limparFiltros() {
     setBuscaTexto('');
     setFiltroOperadora('Todas');
-    setFiltroStatus('Todos');
     setFiltroData('');
     setPaginaAtual(1);
   }
 
-  function abrirModalNovo() {
-    setAtendimentoSelecionado(null);
-    setModalAberto(true);
-  }
-
-  function abrirModalAtendimento(atd: Atendimento) {
+  function abrirModalAtendimento(atd: Atendimento | null) {
     setAtendimentoSelecionado(atd);
     setModalAberto(true);
   }
 
-  const filtrados = atendimentos.filter((item) => {
+  const filtrados = apenasRealizados.filter((item) => {
     const termo = buscaTexto.toLocaleLowerCase();
+    const guiasDaConsulta = extrairGuiasDaConsulta(item);
+    const bateGuiaOuSenha = guiasDaConsulta.some(
+      (g) =>
+        g.numeroGuia.toLocaleLowerCase().includes(termo) ||
+        (g.numeroGuiaOperadora || '').toLocaleLowerCase().includes(termo) ||
+        (g.senhaAutorizacao || '').toLocaleLowerCase().includes(termo)
+    );
     const bateTexto =
       item.id.toLocaleLowerCase().includes(termo) ||
+      bateGuiaOuSenha ||
+      (item.numeroGuia || '').toLocaleLowerCase().includes(termo) ||
+      (item.numeroGuiaOperadora || '').toLocaleLowerCase().includes(termo) ||
+      (item.senhaAutorizacao || '').toLocaleLowerCase().includes(termo) ||
       item.pacienteNome.toLocaleLowerCase().includes(termo) ||
       item.pacienteId.toLocaleLowerCase().includes(termo) ||
       item.medicoNome.toLocaleLowerCase().includes(termo) ||
@@ -104,10 +113,9 @@ export function AtendimentosPage({
       item.descricao.toLocaleLowerCase().includes(termo);
     const bateOperadora =
       filtroOperadora === 'Todas' || item.operadora === filtroOperadora;
-    const bateStatus = filtroStatus === 'Todos' || item.status === filtroStatus;
     const bateData = !filtroData || item.data === filtroData;
 
-    return bateTexto && bateOperadora && bateStatus && bateData;
+    return bateTexto && bateOperadora && bateData;
   });
 
   const totalPaginas = Math.max(
@@ -125,67 +133,45 @@ export function AtendimentosPage({
     'Particular'
   ];
 
-  const qtdAgendados = filtrados.filter((a) => a.status === 'Agendado').length;
-  const valorAgendados = filtrados
-    .filter((a) => a.status === 'Agendado')
-    .reduce((acc, a) => acc + Math.max(0, a.valor - (a.desconto ?? 0)), 0);
-
-  const qtdConfirmados = filtrados.filter((a) => a.status === 'Confirmado').length;
-  const valorConfirmados = filtrados
-    .filter((a) => a.status === 'Confirmado')
-    .reduce((acc, a) => acc + Math.max(0, a.valor - (a.desconto ?? 0)), 0);
-
-  const qtdRealizados = filtrados.filter((a) => a.status === 'Realizado').length;
-  const valorRealizados = filtrados
-    .filter((a) => a.status === 'Realizado')
-    .reduce((acc, a) => acc + Math.max(0, a.valor - (a.desconto ?? 0)), 0);
-
-  const qtdCancelados = filtrados.filter((a) => a.status === 'Cancelado').length;
-  const valorCancelados = filtrados
-    .filter((a) => a.status === 'Cancelado')
-    .reduce((acc, a) => acc + Math.max(0, a.valor - (a.desconto ?? 0)), 0);
+  const qtdRealizados = filtrados.length;
+  const valorRealizados = filtrados.reduce(
+    (acc, a) => acc + Math.max(0, a.valor - (a.desconto ?? 0)),
+    0
+  );
+  const qtdConvenios = filtrados.filter(
+    (a) => a.operadora !== 'Particular'
+  ).length;
+  const qtdParticulares = filtrados.filter(
+    (a) => a.operadora === 'Particular'
+  ).length;
 
   function construirOpcoesAtendimento(item: Atendimento): OpcaoActionMenu[] {
-    const opcoes: OpcaoActionMenu[] = [
+    const guiasDaConsulta = extrairGuiasDaConsulta(item);
+    const opcoesGuias: OpcaoActionMenu[] = guiasDaConsulta.map((gd) => ({
+      rotulo: `Visualizar / Imprimir Guia ${gd.numeroGuia}${gd.numeroGuiaOperadora && gd.numeroGuiaOperadora !== gd.numeroGuia ? ` (Ope: ${gd.numeroGuiaOperadora})` : ''}`,
+      icone: <FileText size={14} />,
+      aoClicar: () =>
+        setGuiaTussParaVisualizar({
+          ...item,
+          numeroGuia: gd.numeroGuia,
+          numeroGuiaOperadora: gd.numeroGuiaOperadora,
+          senhaAutorizacao: gd.senhaAutorizacao,
+          codigoTuss: gd.codigoTussPrincipal,
+          descricao: gd.descricao,
+          valor: gd.valorTotal,
+          desconto: gd.desconto,
+          procedimentos: gd.procedimentos
+        })
+    }));
+
+    return [
       {
-        rotulo:
-          item.status === 'Cancelado'
-            ? 'Reagendar (Alterar Data/Hora)'
-            : 'Ver / Editar Atendimento',
-        icone: <Pencil size={14} />,
+        rotulo: 'Gerenciar Ficha da Consulta e Procedimentos',
+        icone: <FolderOpen size={14} />,
         aoClicar: () => abrirModalAtendimento(item)
-      }
+      },
+      ...opcoesGuias
     ];
-
-    if (
-      item.status !== 'Confirmado' &&
-      item.status !== 'Realizado' &&
-      item.status !== 'Cancelado'
-    ) {
-      opcoes.push({
-        rotulo: 'Confirmar Atendimento',
-        icone: <Clock size={14} />,
-        aoClicar: () => aoAlterarStatusAtendimento(item.id, 'Confirmado')
-      });
-    }
-
-    if (item.status !== 'Realizado' && item.status !== 'Cancelado') {
-      opcoes.push({
-        rotulo: 'Marcar como Realizado',
-        icone: <CheckCircle2 size={14} />,
-        aoClicar: () => aoAlterarStatusAtendimento(item.id, 'Realizado')
-      });
-    }
-
-    if (item.status !== 'Cancelado') {
-      opcoes.push({
-        rotulo: 'Cancelar Atendimento',
-        icone: <XCircle size={14} />,
-        aoClicar: () => aoAlterarStatusAtendimento(item.id, 'Cancelado')
-      });
-    }
-
-    return opcoes;
   }
 
   return (
@@ -201,63 +187,59 @@ export function AtendimentosPage({
       >
         <div>
           <h1 style={{ fontSize: '1.75rem', marginBottom: '0.35rem' }}>
-            Atendimentos Clínicos
+            Gestão de Consultas e Produção Assistencial
           </h1>
           <p style={{ color: 'var(--text-secondary)' }}>
-            Gerencie agendamentos, procedimentos, emissão de Guias TUSS no modal e histórico
-            financeiro de atendimentos.
+            Controle corporativo de atendimentos realizados, codificação TUSS,
+            autorizações de operadoras e emissão de guias de faturamento.
           </p>
         </div>
 
-        <button className="btn-primary" onClick={abrirModalNovo}>
+        <button
+          type="button"
+          className="btn-primary"
+          onClick={() => abrirModalAtendimento(null)}
+        >
           <Plus size={18} />
-          <span>Novo Atendimento</span>
+          <span>Registrar Consulta</span>
         </button>
       </div>
 
       <section className="kpi-grid">
         <div className="kpi-card">
           <div className="kpi-header">
-            <span>Agendados</span>
-            <Clock size={20} color="#3b82f6" />
-          </div>
-          <div className="kpi-value">{qtdAgendados}</div>
-          <div className="kpi-subtitle">
-            Volume: <strong>{formatarMoeda(valorAgendados)}</strong> • Aguardando confirmação
-          </div>
-        </div>
-
-        <div className="kpi-card">
-          <div className="kpi-header">
-            <span>Confirmados</span>
-            <CalendarCheck size={20} color="#778873" />
-          </div>
-          <div className="kpi-value">{qtdConfirmados}</div>
-          <div className="kpi-subtitle">
-            Volume: <strong>{formatarMoeda(valorConfirmados)}</strong> • Guia TUSS liberada
-          </div>
-        </div>
-
-        <div className="kpi-card">
-          <div className="kpi-header">
-            <span>Realizados</span>
+            <span>Consultas Realizadas</span>
             <CheckCircle2 size={20} color="#4d6b53" />
           </div>
           <div className="kpi-value">{qtdRealizados}</div>
-          <div className="kpi-subtitle">
-            Volume: <strong>{formatarMoeda(valorRealizados)}</strong> • Concluídos
-          </div>
+          <div className="kpi-subtitle">Atendimentos auditados no período</div>
         </div>
 
         <div className="kpi-card">
           <div className="kpi-header">
-            <span>Cancelados</span>
-            <XCircle size={20} color="#dc2626" />
+            <span>Receita Assistencial Líquida</span>
+            <DollarSign size={20} color="#778873" />
           </div>
-          <div className="kpi-value">{qtdCancelados}</div>
-          <div className="kpi-subtitle">
-            Volume: <strong>{formatarMoeda(valorCancelados)}</strong> • Desmarcados / Expirados
+          <div className="kpi-value">{formatarMoeda(valorRealizados)}</div>
+          <div className="kpi-subtitle">Produção líquida consolidada</div>
+        </div>
+
+        <div className="kpi-card">
+          <div className="kpi-header">
+            <span>Atendimentos por Operadoras</span>
+            <Layers size={20} color="#3b82f6" />
           </div>
+          <div className="kpi-value">{qtdConvenios}</div>
+          <div className="kpi-subtitle">Faturamento via convênios credenciados</div>
+        </div>
+
+        <div className="kpi-card">
+          <div className="kpi-header">
+            <span>Atendimentos Particulares</span>
+            <CalendarCheck size={20} color="#778873" />
+          </div>
+          <div className="kpi-value">{qtdParticulares}</div>
+          <div className="kpi-subtitle">Faturamento direto na unidade</div>
         </div>
       </section>
 
@@ -273,7 +255,7 @@ export function AtendimentosPage({
               }}
             >
               <CalendarCheck size={18} color="#778873" />
-              <span>Agenda e Histórico de Atendimentos ({filtrados.length})</span>
+              <span>Relação de Consultas Realizadas ({filtrados.length})</span>
             </h2>
             <p
               style={{
@@ -282,8 +264,8 @@ export function AtendimentosPage({
                 marginTop: '0.2rem'
               }}
             >
-              Clique no atendimento para abrir o modal, editar procedimentos e visualizar ou
-              imprimir a Guia TUSS.
+              Selecione um registro para visualizar a ficha clínica-financeira,
+              gerenciar procedimentos e emitir guias.
             </p>
           </div>
 
@@ -295,12 +277,15 @@ export function AtendimentosPage({
           />
         </div>
 
-        <ExpandableFilterPanel aberto={painelFiltrosAberto} aoLimpar={limparFiltros}>
+        <ExpandableFilterPanel
+          aberto={painelFiltrosAberto}
+          aoLimpar={limparFiltros}
+        >
           <div className="search-box" style={{ flex: 1, minWidth: '240px' }}>
             <Search size={16} color="#5A6B57" />
             <input
               type="text"
-              placeholder="Buscar paciente, ID do paciente, médico ou procedimento..."
+              placeholder="Pesquisar por código da consulta, guia empresa, guia operadora, senha, paciente ou médico..."
               value={buscaTexto}
               onChange={(e) => {
                 setBuscaTexto(e.target.value);
@@ -317,7 +302,7 @@ export function AtendimentosPage({
               setFiltroData(e.target.value);
               setPaginaAtual(1);
             }}
-            title="Filtrar por data do atendimento"
+            title="Filtrar por data da consulta"
           />
 
           <select
@@ -335,34 +320,19 @@ export function AtendimentosPage({
               </option>
             ))}
           </select>
-
-          <select
-            className="filter-select"
-            value={filtroStatus}
-            onChange={(e) => {
-              setFiltroStatus(e.target.value);
-              setPaginaAtual(1);
-            }}
-          >
-            <option value="Todos">Status: Todos</option>
-            <option value="Agendado">Agendado</option>
-            <option value="Confirmado">Confirmado</option>
-            <option value="Realizado">Realizado</option>
-            <option value="Cancelado">Cancelado</option>
-          </select>
         </ExpandableFilterPanel>
 
         <div className="table-container">
           <table className="demandas-table">
             <thead>
               <tr>
-                <th>Código</th>
+                <th>Código da Consulta &amp; Guias</th>
                 <th>Paciente</th>
-                <th>Médico</th>
-                <th>Descrição</th>
-                <th>Data e Hora</th>
-                <th>Operadora</th>
-                <th>Valor</th>
+                <th>Médico Executante</th>
+                <th>Procedimentos Realizados</th>
+                <th>Data e Horário</th>
+                <th>Operadora / Plano</th>
+                <th>Valor Líquido</th>
                 <th>Status</th>
                 <th>Ações</th>
               </tr>
@@ -378,7 +348,7 @@ export function AtendimentosPage({
                       padding: '2rem'
                     }}
                   >
-                    Nenhum atendimento encontrado para os filtros aplicados.
+                    Nenhuma consulta encontrada para os critérios selecionados.
                   </td>
                 </tr>
               ) : (
@@ -386,72 +356,153 @@ export function AtendimentosPage({
                   const temDesconto =
                     item.operadora === 'Particular' && (item.desconto ?? 0) > 0;
                   const liquido = Math.max(0, item.valor - (item.desconto ?? 0));
+                  const ultimoHistorico = item.historicoAlteracoes?.[0];
+                  const guiasDaConsulta = extrairGuiasDaConsulta(item);
 
                   return (
                     <tr
                       key={item.id}
                       className="clickable-row"
                       onClick={() => abrirModalAtendimento(item)}
-                      title="Clique para abrir informações completas do atendimento"
+                      title="Clique para abrir a ficha da consulta"
                     >
-                      <td style={{ fontWeight: 700, color: '#778873' }}>{item.id}</td>
+                      <td>
+                        <div style={{ fontWeight: 700, color: '#778873' }}>
+                          {item.id}
+                        </div>
+                        <small
+                          style={{
+                            color: 'var(--text-secondary)',
+                            display: 'block',
+                            marginTop: '0.15rem'
+                          }}
+                        >
+                          Guia Emp.:{' '}
+                          <strong>
+                            {guiasDaConsulta.map((g) => g.numeroGuia).join(', ')}
+                          </strong>
+                        </small>
+                        {item.operadora !== 'Particular' && (
+                          <small
+                            style={{
+                              color: 'var(--text-secondary)',
+                              display: 'block'
+                            }}
+                          >
+                            Guia Ope.:{' '}
+                            <strong>
+                              {guiasDaConsulta
+                                .map((g) => g.numeroGuiaOperadora || g.numeroGuia)
+                                .join(', ')}
+                            </strong>
+                          </small>
+                        )}
+                      </td>
                       <td>
                         <div style={{ fontWeight: 600 }}>{item.pacienteNome}</div>
                         <small
-                          style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}
+                          style={{
+                            color: 'var(--text-secondary)',
+                            fontSize: '0.78rem'
+                          }}
                         >
-                          ID Paciente: <strong>{item.pacienteId}</strong>
+                          Registro: <strong>{item.pacienteId}</strong>
                         </small>
                       </td>
                       <td>
                         <div style={{ fontWeight: 500 }}>{item.medicoNome}</div>
                         <small
-                          style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}
+                          style={{
+                            color: 'var(--text-secondary)',
+                            fontSize: '0.78rem'
+                          }}
                         >
                           {item.especialidade}
                         </small>
                       </td>
                       <td style={{ color: 'var(--text-secondary)' }}>
-                        <div>{item.descricao}</div>
-                        {(item.historicoAlteracoes?.length ?? 0) > 0 && (
+                        <div
+                          style={{
+                            color: 'var(--text-primary)',
+                            fontWeight: 500
+                          }}
+                        >
+                          {item.descricao}
+                        </div>
+                        <small
+                          style={{
+                            display: 'block',
+                            color: 'var(--text-secondary)',
+                            fontSize: '0.76rem',
+                            marginTop: '0.15rem'
+                          }}
+                        >
+                          {(item.procedimentos?.length ?? 1)} procedimento(s) •{' '}
+                          {guiasDaConsulta.length} guia(s) emitida(s)
+                        </small>
+                        {ultimoHistorico && (
                           <small
                             style={{
-                              color: '#778873',
+                              display: 'block',
+                              color: '#4d6b53',
                               fontWeight: 600,
-                              fontSize: '0.73rem'
+                              fontSize: '0.74rem',
+                              marginTop: '0.18rem'
                             }}
                           >
-                            {item.historicoAlteracoes?.length} alteração(ões) de valor/desc.
+                            Auditoria:{' '}
+                            {ultimoHistorico.descricaoAcao ||
+                              `${ultimoHistorico.dataHora} — Atualização Financeira`}
                           </small>
                         )}
                       </td>
                       <td>
-                        <div style={{ fontWeight: 600 }}>{formatarDataBR(item.data)}</div>
+                        <div style={{ fontWeight: 600 }}>
+                          {formatarDataBR(item.data)}
+                        </div>
                         <small style={{ color: 'var(--text-secondary)' }}>
                           às {item.hora || '09:00'}
                         </small>
                       </td>
                       <td>
-                        <span className="badge badge-faturado">{item.operadora}</span>
-                      </td>
-                      <td>
-                        <div style={{ fontWeight: 700 }}>{formatarMoeda(liquido)}</div>
-                        {temDesconto && (
-                          <small style={{ color: '#d97706', fontSize: '0.75rem' }}>
-                            Desc: {formatarMoeda(item.desconto ?? 0)}
+                        <span className="badge badge-faturado">
+                          {item.operadora}
+                        </span>
+                        {item.plano && (
+                          <small
+                            style={{
+                              display: 'block',
+                              color: 'var(--text-secondary)',
+                              fontSize: '0.74rem',
+                              marginTop: '0.2rem'
+                            }}
+                          >
+                            {item.plano}
                           </small>
                         )}
                       </td>
                       <td>
-                        <span className={obterClasseBadgeAtendimento(item.status)}>
-                          {item.status}
+                        <div style={{ fontWeight: 700 }}>
+                          {formatarMoeda(liquido)}
+                        </div>
+                        {temDesconto && (
+                          <small
+                            style={{ color: '#d97706', fontSize: '0.75rem' }}
+                          >
+                            Desc.: {formatarMoeda(item.desconto ?? 0)}
+                          </small>
+                        )}
+                      </td>
+                      <td>
+                        <span className={obterClasseBadgeAtendimento('Realizado')}>
+                          Realizado
                         </span>
                       </td>
                       <td onClick={(e) => e.stopPropagation()}>
                         <ActionMenu
                           opcoes={construirOpcoesAtendimento(item)}
                           aoExcluir={() => aoExcluirAtendimento(item.id)}
-                          tituloExcluir="Excluir Atendimento"
+                          tituloExcluir="Excluir Consulta"
                         />
                       </td>
                     </tr>
@@ -473,9 +524,11 @@ export function AtendimentosPage({
       {modalAberto && (
         <ModalAtendimento
           atendimentoInicial={atendimentoSelecionado}
+          atendimentosExistentes={atendimentos}
           pacientes={pacientes}
           medicos={medicos}
           operadoras={operadoras}
+          demandas={demandas}
           aoFechar={() => {
             setModalAberto(false);
             setAtendimentoSelecionado(null);
@@ -496,7 +549,9 @@ export function AtendimentosPage({
       {guiaTussParaVisualizar && (
         <ModalGuiaTuss
           atendimento={guiaTussParaVisualizar}
-          paciente={pacientes.find((p) => p.id === guiaTussParaVisualizar.pacienteId)}
+          paciente={pacientes.find(
+            (p) => p.id === guiaTussParaVisualizar.pacienteId
+          )}
           medico={medicos.find((m) => m.id === guiaTussParaVisualizar.medicoId)}
           aoFechar={() => setGuiaTussParaVisualizar(null)}
         />

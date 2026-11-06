@@ -8,7 +8,8 @@ import {
   Pencil,
   MessageSquareWarning,
   FolderOpen,
-  Calendar
+  Calendar,
+  Clock
 } from 'lucide-react';
 import type {
   DemandaFinanceira,
@@ -82,7 +83,18 @@ export function VisaoGeralPage({
     const bateTexto =
       demanda.id.toLocaleLowerCase().includes(termo) ||
       demanda.operadora.toLocaleLowerCase().includes(termo) ||
-      demanda.descricao.toLocaleLowerCase().includes(termo);
+      (demanda.observacoes || '').toLocaleLowerCase().includes(termo) ||
+      (demanda.tipoAtendimento || '').toLocaleLowerCase().includes(termo) ||
+      demanda.descricao.toLocaleLowerCase().includes(termo) ||
+      (demanda.codigoEnvioOperadora || '').toLocaleLowerCase().includes(termo) ||
+      (demanda.guias ?? []).some(
+        (g) =>
+          g.id.toLocaleLowerCase().includes(termo) ||
+          (g.faturaId || '').toLocaleLowerCase().includes(termo) ||
+          (g.atendimentoId || '').toLocaleLowerCase().includes(termo) ||
+          (g.pacienteId || '').toLocaleLowerCase().includes(termo) ||
+          (g.senhaAutorizacao || '').toLocaleLowerCase().includes(termo)
+      );
     const bateStatus = filtroStatus === 'Todos' || demanda.status === filtroStatus;
     const batePrioridade =
       filtroPrioridade === 'Todas' || demanda.prioridade === filtroPrioridade;
@@ -100,16 +112,23 @@ export function VisaoGeralPage({
     paginaSegura * ITENS_POR_PAGINA_DASHBOARD
   );
 
-  const demandasAbertas = demandasNoPeriodo.filter((d) => d.status === 'Aberto');
-  const totalAberto = demandasAbertas.reduce((soma, item) => soma + item.valor, 0);
+  const demandasAbertasOuPendentes = demandasNoPeriodo.filter(
+    (d) => d.status === 'Aberto' || d.status === 'Pendente'
+  );
+  const totalAberto = demandasAbertasOuPendentes.reduce(
+    (soma, item) => soma + item.valor,
+    0
+  );
 
-  const demandasFaturadas = demandasNoPeriodo.filter((d) => d.status === 'Faturada');
-  const totalFaturada = demandasFaturadas.reduce((soma, item) => soma + item.valor, 0);
+  const demandasFechadas = demandasNoPeriodo.filter((d) => d.status === 'Fechado');
+  const totalFechado = demandasFechadas.reduce((soma, item) => soma + item.valor, 0);
 
-  const demandasEnviadas = demandasNoPeriodo.filter((d) => d.status === 'Enviada');
-  const totalEnviada = demandasEnviadas.reduce((soma, item) => soma + item.valor, 0);
+  const demandasEnviadas = demandasNoPeriodo.filter(
+    (d) => d.status === 'Enviado' || d.status === 'Reenviado'
+  );
+  const totalEnviado = demandasEnviadas.reduce((soma, item) => soma + item.valor, 0);
 
-  const receitaConsolidada = totalFaturada + totalEnviada;
+  const receitaConsolidada = totalFechado + totalEnviado;
   const percentualMeta =
     metaFinanceira > 0 ? Math.round((receitaConsolidada / metaFinanceira) * 100) : 0;
   const larguraBarraMeta = Math.min(100, Math.max(0, percentualMeta));
@@ -117,7 +136,7 @@ export function VisaoGeralPage({
   function construirOpcoesLinha(item: DemandaFinanceira): OpcaoActionMenu[] {
     const opcoes: OpcaoActionMenu[] = [
       {
-        rotulo: 'Abrir / Editar Lote',
+        rotulo: 'Abrir / Gerenciar Lote',
         icone: <Pencil size={14} />,
         aoClicar: () => aoEditarDemanda(item)
       }
@@ -125,26 +144,57 @@ export function VisaoGeralPage({
 
     if (item.status === 'Aberto') {
       opcoes.push({
-        rotulo: 'Marcar como Faturada',
+        rotulo: 'Faturar Guias (Fechar)',
         icone: <Check size={14} />,
-        aoClicar: () => aoAlterarStatus(item.id, 'Faturada')
+        aoClicar: () => aoAlterarStatus(item.id, 'Fechado')
       });
-    }
-
-    if (item.status !== 'Enviada') {
       opcoes.push({
-        rotulo: 'Marcar como Enviada',
-        icone: <Send size={14} />,
-        aoClicar: () => aoAlterarStatus(item.id, 'Enviada')
+        rotulo: 'Marcar como Pendente',
+        icone: <Clock size={14} />,
+        aoClicar: () => aoAlterarStatus(item.id, 'Pendente')
       });
-    }
-
-    if (item.status === 'Enviada') {
+    } else if (item.status === 'Pendente') {
       opcoes.push({
-        rotulo: item.recurso ? 'Atualizar Recurso' : 'Abrir Recurso',
+        rotulo: 'Abrir Lote',
+        icone: <FolderOpen size={14} />,
+        aoClicar: () => aoAlterarStatus(item.id, 'Aberto')
+      });
+      opcoes.push({
+        rotulo: 'Faturar Guias (Fechar)',
+        icone: <Check size={14} />,
+        aoClicar: () => aoAlterarStatus(item.id, 'Fechado')
+      });
+    } else if (item.status === 'Fechado' && !item.codigoEnvioOperadora) {
+      opcoes.push({
+        rotulo: 'Abrir Lote',
+        icone: <FolderOpen size={14} />,
+        aoClicar: () => aoAlterarStatus(item.id, 'Aberto')
+      });
+    } else if (
+      item.status === 'Enviado' ||
+      item.status === 'Reenviado' ||
+      (item.status === 'Fechado' && Boolean(item.codigoEnvioOperadora))
+    ) {
+      opcoes.push({
+        rotulo: 'Glosar Lote',
+        icone: <MessageSquareWarning size={14} />,
+        destaque: 'recurso',
+        aoClicar: () => {
+          aoAlterarStatus(item.id, 'Glosado');
+          aoAbrirRecurso(item);
+        }
+      });
+    } else if (item.status === 'Glosado') {
+      opcoes.push({
+        rotulo: 'Tratar Glosa',
         icone: <MessageSquareWarning size={14} />,
         destaque: 'recurso',
         aoClicar: () => aoAbrirRecurso(item)
+      });
+      opcoes.push({
+        rotulo: 'Abrir Lote',
+        icone: <FolderOpen size={14} />,
+        aoClicar: () => aoAlterarStatus(item.id, 'Aberto')
       });
     }
 
@@ -214,10 +264,10 @@ export function VisaoGeralPage({
       <section className="kpi-grid kpi-grid-three">
         <div className="kpi-card">
           <div className="kpi-header">
-            <span>Faturada</span>
+            <span>Fechado (Faturado)</span>
             <CheckCircle2 size={20} color="#778873" />
           </div>
-          <div className="kpi-value">{formatarMoeda(totalFaturada)}</div>
+          <div className="kpi-value">{formatarMoeda(totalFechado)}</div>
           <div className="meta-progress-wrapper">
             <div className="meta-progress-track">
               <div
@@ -226,17 +276,17 @@ export function VisaoGeralPage({
               />
             </div>
             <div className="meta-progress-label">
-              <span>{percentualMeta}% da meta (Faturada + Enviada)</span>
+              <span>{percentualMeta}% da meta (Fechado + Enviado)</span>
             </div>
           </div>
         </div>
 
         <div className="kpi-card">
           <div className="kpi-header">
-            <span>Enviada</span>
+            <span>Enviado / Reenviado</span>
             <Send size={20} color="#4d6b53" />
           </div>
-          <div className="kpi-value">{formatarMoeda(totalEnviada)}</div>
+          <div className="kpi-value">{formatarMoeda(totalEnviado)}</div>
           <div className="kpi-subtitle">
             {demandasEnviadas.length}{' '}
             {demandasEnviadas.length === 1
@@ -247,15 +297,15 @@ export function VisaoGeralPage({
 
         <div className="kpi-card">
           <div className="kpi-header">
-            <span>Lotes em Aberto</span>
+            <span>Lotes Abertos / Pendentes</span>
             <FolderOpen size={20} color="#778873" />
           </div>
           <div className="kpi-value">{formatarMoeda(totalAberto)}</div>
           <div className="kpi-subtitle">
-            {demandasAbertas.length}{' '}
-            {demandasAbertas.length === 1
-              ? 'lote aberto aguardando faturamento'
-              : 'lotes abertos aguardando faturamento'}
+            {demandasAbertasOuPendentes.length}{' '}
+            {demandasAbertasOuPendentes.length === 1
+              ? 'lote aguardando fechamento'
+              : 'lotes aguardando fechamento'}
           </div>
         </div>
       </section>
@@ -299,7 +349,7 @@ export function VisaoGeralPage({
             <Search size={16} color="#5A6B57" />
             <input
               type="text"
-              placeholder="Buscar código, operadora ou descrição..."
+              placeholder="Buscar LOTE-nº, FAT-nº, G-nº, CONS-nº, PAC-nº, senha, protocolo ou operadora..."
               value={buscaTexto}
               onChange={(e) => {
                 setBuscaTexto(e.target.value);
@@ -333,8 +383,11 @@ export function VisaoGeralPage({
           >
             <option value="Todos">Status: Todos</option>
             <option value="Aberto">Aberto</option>
-            <option value="Faturada">Faturada</option>
-            <option value="Enviada">Enviada</option>
+            <option value="Pendente">Pendente</option>
+            <option value="Fechado">Fechado</option>
+            <option value="Enviado">Enviado</option>
+            <option value="Glosado">Glosado</option>
+            <option value="Reenviado">Reenviado</option>
           </select>
 
           <select
@@ -356,9 +409,9 @@ export function VisaoGeralPage({
           <table className="demandas-table">
             <thead>
               <tr>
-                <th>Código</th>
+                <th>Código (LOTE-nº)</th>
                 <th>Operadora</th>
-                <th>Descrição do Lote</th>
+                <th>Consulta / Guias & Faturas</th>
                 <th>Prioridade</th>
                 <th>Valor</th>
                 <th>Status</th>
@@ -381,48 +434,61 @@ export function VisaoGeralPage({
                   </td>
                 </tr>
               ) : (
-                demandasPaginadas.map((item) => (
-                  <tr
-                    key={item.id}
-                    className="clickable-row"
-                    onClick={() => aoEditarDemanda(item)}
-                  >
-                    <td style={{ fontWeight: 700, color: '#778873' }}>{item.id}</td>
-                    <td style={{ fontWeight: 500 }}>{item.operadora}</td>
-                    <td style={{ color: 'var(--text-secondary)' }}>
-                      <div>{item.descricao}</div>
-                      <small className="obs-preview">
-                        {item.tipoAtendimento} • {item.guias?.length ?? 0} guia(s)
-                      </small>
-                      {item.recurso && (
-                        <span className="recurso-tag" title={item.recurso.motivo}>
-                          Recurso Aberto
+                demandasPaginadas.map((item) => {
+                  const faturasDoLote = (item.guias ?? [])
+                    .map((g) => g.faturaId)
+                    .filter(Boolean);
+                  return (
+                    <tr
+                      key={item.id}
+                      className="clickable-row"
+                      onClick={() => aoEditarDemanda(item)}
+                    >
+                      <td style={{ fontWeight: 700, color: '#778873' }}>{item.id}</td>
+                      <td style={{ fontWeight: 500 }}>{item.operadora}</td>
+                      <td style={{ color: 'var(--text-secondary)' }}>
+                        <div>
+                          {item.observacoes || item.descricao || `Lote ${item.operadora} — ${item.tipoAtendimento}`}
+                        </div>
+                        <small className="obs-preview">
+                          {item.tipoAtendimento} • {item.guias?.length ?? 0} guia(s) (G-nº)
+                          {faturasDoLote.length > 0
+                            ? ` • Faturas: ${faturasDoLote.join(', ')}`
+                            : ''}
+                          {item.codigoEnvioOperadora
+                            ? ` • Protocolo Envio: ${item.codigoEnvioOperadora}`
+                            : ''}
+                        </small>
+                        {item.recurso && (
+                          <span className="recurso-tag" title={item.recurso.motivo}>
+                            Glosa: {item.recurso.tipoGlosa}
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        <span className={obterClassePrioridade(item.prioridade)}>
+                          {item.prioridade}
                         </span>
-                      )}
-                    </td>
-                    <td>
-                      <span className={obterClassePrioridade(item.prioridade)}>
-                        {item.prioridade}
-                      </span>
-                    </td>
-                    <td style={{ fontWeight: 600 }}>{formatarMoeda(item.valor)}</td>
-                    <td>
-                      <span className={obterClasseBadge(item.status)}>{item.status}</span>
-                    </td>
-                    <td style={{ color: 'var(--text-secondary)', fontSize: '0.84rem' }}>
-                      {formatarUltimaAtualizacao(
-                        item.dataAlteracaoOuEnvio || item.atualizadoHa
-                      )}
-                    </td>
-                    <td>
-                      <ActionMenu
-                        opcoes={construirOpcoesLinha(item)}
-                        aoExcluir={() => aoExcluirDemanda(item.id)}
-                        tituloExcluir="Excluir Lote"
-                      />
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                      <td style={{ fontWeight: 600 }}>{formatarMoeda(item.valor)}</td>
+                      <td>
+                        <span className={obterClasseBadge(item.status)}>{item.status}</span>
+                      </td>
+                      <td style={{ color: 'var(--text-secondary)', fontSize: '0.84rem' }}>
+                        {formatarUltimaAtualizacao(
+                          item.dataAlteracaoOuEnvio || item.atualizadoHa
+                        )}
+                      </td>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <ActionMenu
+                          opcoes={construirOpcoesLinha(item)}
+                          aoExcluir={() => aoExcluirDemanda(item.id)}
+                          tituloExcluir="Excluir Lote"
+                        />
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

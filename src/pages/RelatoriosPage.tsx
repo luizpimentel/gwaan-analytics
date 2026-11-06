@@ -66,7 +66,14 @@ interface RelatoriosPageProps {
   aoSalvarRegras: (novasRegras: RegrasGestao) => void;
 }
 
-const TODOS_STATUS: StatusFaturamento[] = ['Aberto', 'Faturada', 'Enviada'];
+const TODOS_STATUS: StatusFaturamento[] = [
+  'Aberto',
+  'Pendente',
+  'Fechado',
+  'Enviado',
+  'Glosado',
+  'Reenviado'
+];
 const TODAS_PRIORIDADES: PrioridadeDemanda[] = ['Alta', 'Média', 'Baixa'];
 
 export function RelatoriosPage({
@@ -177,9 +184,9 @@ export function RelatoriosPage({
       valor: p.valor,
       status:
         p.status === 'Pago'
-          ? 'Faturada'
+          ? 'Fechado'
           : p.status === 'Fechado'
-            ? 'Enviada'
+            ? 'Enviado'
             : 'Aberto',
       prioridade: p.prioridade,
       atualizadoHa: p.atualizadoEm,
@@ -223,19 +230,23 @@ export function RelatoriosPage({
   });
 
   const totalAberto = registrosFiltrados
-    .filter((d) => d.status === 'Aberto')
+    .filter((d) => d.status === 'Aberto' || d.status === 'Pendente')
     .reduce((s, i) => s + i.valor, 0);
   const totalFaturada = registrosFiltrados
-    .filter((d) => d.status === 'Faturada')
+    .filter((d) => d.status === 'Fechado')
     .reduce((s, i) => s + i.valor, 0);
   const totalEnviada = registrosFiltrados
-    .filter((d) => d.status === 'Enviada')
+    .filter((d) => d.status === 'Enviado' || d.status === 'Reenviado')
+    .reduce((s, i) => s + i.valor, 0);
+  const totalGlosado = registrosFiltrados
+    .filter((d) => d.status === 'Glosado')
     .reduce((s, i) => s + i.valor, 0);
 
   const dadosGraficoStatus = [
-    { name: 'Aberto (Em Alocação / Pendente)', valor: totalAberto, cor: '#3b82f6' },
-    { name: 'Faturada / Pago', valor: totalFaturada, cor: '#778873' },
-    { name: 'Enviada / Fechado', valor: totalEnviada, cor: '#4d6b53' }
+    { name: 'Aberto / Pendente', valor: totalAberto, cor: '#3b82f6' },
+    { name: 'Fechado (Faturado) / Pago', valor: totalFaturada, cor: '#778873' },
+    { name: 'Enviado / Reenviado', valor: totalEnviada, cor: '#4d6b53' },
+    { name: 'Glosado', valor: totalGlosado, cor: '#dc2626' }
   ];
 
   const volumeTotal = registrosFiltrados.reduce((acc, r) => acc + r.valor, 0);
@@ -256,7 +267,7 @@ export function RelatoriosPage({
   );
 
   const atendimentosRealizadosOuConfirmados = atendimentos.filter(
-    (a) => a.status === 'Realizado' || a.status === 'Confirmado'
+    (a) => a.status === 'Realizado'
   );
   const percMetaAtendimentos =
     regrasGestao.metaAtendimentosMensal > 0
@@ -285,13 +296,13 @@ export function RelatoriosPage({
     const itens = registrosFiltrados.filter((r) => r.operadora === nomeEntidade);
     const somaTotal = itens.reduce((acc, i) => acc + i.valor, 0);
     const aberto = itens
-      .filter((i) => i.status === 'Aberto')
+      .filter((i) => i.status === 'Aberto' || i.status === 'Pendente')
       .reduce((acc, i) => acc + i.valor, 0);
     const faturada = itens
-      .filter((i) => i.status === 'Faturada')
+      .filter((i) => i.status === 'Fechado')
       .reduce((acc, i) => acc + i.valor, 0);
     const enviada = itens
-      .filter((i) => i.status === 'Enviada')
+      .filter((i) => i.status === 'Enviado' || i.status === 'Reenviado')
       .reduce((acc, i) => acc + i.valor, 0);
 
     const participacao =
@@ -325,7 +336,12 @@ export function RelatoriosPage({
     const bateTexto = !termo || op.nome.toLocaleLowerCase().includes(termo);
     const lotesOp = demandasOperadoras.filter((d) => d.operadora === op.nome);
     const efetivadoOp = lotesOp
-      .filter((i) => i.status === 'Faturada' || i.status === 'Enviada')
+      .filter(
+        (i) =>
+          i.status === 'Fechado' ||
+          i.status === 'Enviado' ||
+          i.status === 'Reenviado'
+      )
       .reduce((acc, i) => acc + i.valor, 0);
     const atingiu = efetivadoOp >= regrasGestao.metaPorOperadora;
     const bateConf =
@@ -948,7 +964,9 @@ export function RelatoriosPage({
                       const efetivadoOp = lotesOp
                         .filter(
                           (i) =>
-                            i.status === 'Faturada' || i.status === 'Enviada'
+                            i.status === 'Fechado' ||
+                            i.status === 'Enviado' ||
+                            i.status === 'Reenviado'
                         )
                         .reduce((acc, i) => acc + i.valor, 0);
                       const perc =

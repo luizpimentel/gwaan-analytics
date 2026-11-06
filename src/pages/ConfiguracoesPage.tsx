@@ -114,8 +114,8 @@ export function ConfiguracoesPage({
               </div>
               <p>
                 Exibe uma caixa de confirmação antes de excluir permanentemente lotes,
-                guias particulares, pacientes, profissionais, clientes VIP, atendimentos ou
-                operadoras.
+                guias particulares, beneficiários, corpo clínico, produção assistencial ou
+                operadoras ANS.
               </p>
             </div>
 
@@ -147,7 +147,7 @@ export function ConfiguracoesPage({
             }}
           >
             Exporte uma cópia integral de segurança de todos os módulos (Lotes, Particulares,
-            Operadoras, Pacientes, Profissionais, Clientes VIP, Atendimentos e Relatórios).
+            Operadoras ANS, Beneficiários, Corpo Clínico, Produção Assistencial e Relatórios).
           </p>
         </div>
 

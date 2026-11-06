@@ -22,10 +22,17 @@ export function obterClasseBadge(status: StatusFaturamento | string): string {
   switch (status) {
     case 'Aberto':
       return 'badge badge-auditoria';
+    case 'Fechado':
     case 'Faturada':
       return 'badge badge-faturado';
+    case 'Enviado':
     case 'Enviada':
+    case 'Reenviado':
       return 'badge badge-enviado';
+    case 'Glosado':
+      return 'badge badge-glosado';
+    case 'Pendente':
+      return 'badge badge-pendente';
     default:
       return 'badge badge-faturado';
   }

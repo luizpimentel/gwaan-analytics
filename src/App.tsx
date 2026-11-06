@@ -7,10 +7,10 @@ import {
   PROFISSIONAIS_INICIAIS,
   PACIENTES_INICIAIS,
   ATENDIMENTOS_INICIAIS,
-  CLIENTES_VIP_INICIAIS,
   REGRAS_GESTAO_PADRAO,
   PREFERENCIAS_PADRAO,
   aplicarCancelamentoAutomaticoAtendimentos,
+  extrairGuiasDaConsulta,
   type Operadora,
   type DemandaFinanceira,
   type GuiaLote,
@@ -21,12 +21,12 @@ import {
   type StatusParticular,
   type StatusLoteParticular,
   type TipoAtendimentoLote,
+  type TipoGlosaLote,
   type HistoricoAlteracaoLote,
   type Profissional,
   type Paciente,
   type Atendimento,
   type StatusAtendimento,
-  type ClienteVIP,
   type RegrasGestao,
   type PreferenciasSistema
 } from './data/dadosFaturamento';
@@ -42,19 +42,18 @@ import { ParticularesPage } from './pages/ParticularesPage';
 import { AtendimentosPage } from './pages/AtendimentosPage';
 import { Profissionais } from './pages/Profissionais';
 import { PacientesPage } from './pages/PacientesPage';
-import { ClientesPage } from './pages/Clientes';
 import { RelatoriosPage } from './pages/RelatoriosPage';
 import { ConfiguracoesPage } from './pages/ConfiguracoesPage';
 import './index.css';
 
-const CHAVE_DEMANDAS = 'gwaan_demandas_v5';
+const CHAVE_DEMANDAS = 'gwaan_demandas_v8';
 const CHAVE_OPERADORAS = 'gwaan_operadoras_v4';
-const CHAVE_GUIAS_PARTICULARES = 'gwaan_guias_particulares_v2';
-const CHAVE_LOTES_PARTICULARES = 'gwaan_lotes_particulares_v5';
-const CHAVE_PROFISSIONAIS = 'gwaan_profissionais_v4';
-const CHAVE_PACIENTES = 'gwaan_pacientes_v3';
-const CHAVE_ATENDIMENTOS = 'gwaan_atendimentos_v5';
-const CHAVE_CLIENTES_VIP = 'gwaan_clientes_vip_v1';
+const CHAVE_GUIAS_PARTICULARES = 'gwaan_guias_particulares_v8';
+const CHAVE_LOTES_PARTICULARES = 'gwaan_lotes_particulares_v8';
+const CHAVE_PROFISSIONAIS = 'gwaan_profissionais_v5';
+const CHAVE_PACIENTES = 'gwaan_pacientes_v8';
+const CHAVE_ATENDIMENTOS = 'gwaan_atendimentos_v8';
+const CHAVE_GUIAS_EXTRAS = 'gwaan_guias_extras_v8';
 const CHAVE_REGRAS = 'gwaan_regras_v2';
 const CHAVE_PREFERENCIAS = 'gwaan_preferencias_v2';
 
@@ -134,8 +133,8 @@ export function App() {
       lerLocalStorage(CHAVE_ATENDIMENTOS, ATENDIMENTOS_INICIAIS)
     ).listaAtualizada
   );
-  const [clientesVip, setClientesVip] = useState<ClienteVIP[]>(() =>
-    lerLocalStorage(CHAVE_CLIENTES_VIP, CLIENTES_VIP_INICIAIS)
+  const [guiasExtrasCriadas, setGuiasExtrasCriadas] = useState<GuiaLote[]>(() =>
+    lerLocalStorage(CHAVE_GUIAS_EXTRAS, [])
   );
   const [regrasGestao, setRegrasGestao] = useState<RegrasGestao>(() =>
     lerLocalStorage(CHAVE_REGRAS, REGRAS_GESTAO_PADRAO)
@@ -146,7 +145,9 @@ export function App() {
 
   const [modalLoteAberto, setModalLoteAberto] = useState<boolean>(false);
   const [loteSelecionadoId, setLoteSelecionadoId] = useState<string | null>(null);
-  const [loteParaRecurso, setLoteParaRecurso] = useState<DemandaFinanceira | null>(null);
+  const [loteParaRecurso, setLoteParaRecurso] = useState<DemandaFinanceira | null>(
+    null
+  );
 
   const loteSelecionado = loteSelecionadoId
     ? demandas.find((d) => d.id === loteSelecionadoId) ?? null
@@ -181,8 +182,8 @@ export function App() {
   }, [atendimentos]);
 
   useEffect(() => {
-    salvarLocalStorageSeguro(CHAVE_CLIENTES_VIP, clientesVip);
-  }, [clientesVip]);
+    salvarLocalStorageSeguro(CHAVE_GUIAS_EXTRAS, guiasExtrasCriadas);
+  }, [guiasExtrasCriadas]);
 
   useEffect(() => {
     salvarLocalStorageSeguro(CHAVE_REGRAS, regrasGestao);
@@ -202,6 +203,78 @@ export function App() {
     return confirm(mensagem);
   }
 
+  function obterTodosCodigosLotes(
+    listaDemandas = demandas,
+    listaLotesParticulares = lotesParticularesArquivados
+  ): string[] {
+    return [
+      ...listaDemandas.map((d) => d.id),
+      ...listaLotesParticulares.map((l) => l.id)
+    ];
+  }
+
+  function obterTodosCodigosGuias(
+    listaAtendimentos = atendimentos,
+    listaGuiasExtras = guiasExtrasCriadas,
+    listaDemandas = demandas,
+    listaGuiasPart = guiasParticulares
+  ): string[] {
+    const ids: string[] = [];
+    for (const a of listaAtendimentos) {
+      if (a.numeroGuia) ids.push(a.numeroGuia);
+      for (const p of a.procedimentos ?? []) {
+        if (p.numeroGuia) ids.push(p.numeroGuia);
+      }
+      for (const gd of extrairGuiasDaConsulta(a)) {
+        ids.push(gd.numeroGuia);
+      }
+    }
+    for (const ge of listaGuiasExtras) ids.push(ge.id);
+    for (const d of listaDemandas) {
+      for (const g of d.guias ?? []) ids.push(g.id);
+    }
+    for (const gp of listaGuiasPart) ids.push(gp.id);
+    return ids;
+  }
+
+  function atribuirCodigosFaturaParaGuias(
+    guiasAlvo: GuiaLote[],
+    listaDemandas: DemandaFinanceira[]
+  ): GuiaLote[] {
+    const usados = new Set<string>();
+    for (const d of listaDemandas) {
+      for (const g of d.guias ?? []) {
+        if (g.faturaId) usados.add(g.faturaId.toUpperCase());
+      }
+    }
+    for (const g of guiasAlvo) {
+      if (g.faturaId) usados.add(g.faturaId.toUpperCase());
+    }
+
+    let proximoNumero = 1001;
+    for (const cod of usados) {
+      const m = cod.match(/^FAT-(\d+)$/i);
+      if (m) {
+        const n = Number(m[1]);
+        if (n >= proximoNumero) proximoNumero = n + 1;
+      }
+    }
+
+    return guiasAlvo.map((g) => {
+      if (g.faturaId && g.faturaId.trim()) return g;
+      while (usados.has(`FAT-${proximoNumero}`)) {
+        proximoNumero++;
+      }
+      const novoFaturaId = `FAT-${proximoNumero}`;
+      usados.add(novoFaturaId);
+      proximoNumero++;
+      return {
+        ...g,
+        faturaId: novoFaturaId
+      };
+    });
+  }
+
   function alterarStatusDemanda(idAlvo: string, statusDestino: StatusFaturamento) {
     const agora = new Date();
     const agoraISO = agora.toISOString();
@@ -213,26 +286,42 @@ export function App() {
       }
     )}`;
 
+    const mantemFaturas =
+      statusDestino === 'Fechado' ||
+      statusDestino === 'Enviado' ||
+      statusDestino === 'Glosado' ||
+      statusDestino === 'Reenviado';
+
     setDemandas((listaAnterior) =>
       listaAnterior.map((item) => {
         if (item.id !== idAlvo) return item;
+        const guiasAtualizadas = mantemFaturas
+          ? atribuirCodigosFaturaParaGuias(item.guias ?? [], listaAnterior)
+          : (item.guias ?? []).map((g) => ({ ...g, faturaId: undefined }));
+
+        const codigosFat = guiasAtualizadas
+          .map((g) => g.faturaId)
+          .filter(Boolean)
+          .join(', ');
+
         const novoEvento: HistoricoAlteracaoLote = {
           id: `HL-${Date.now()}`,
           dataHora: dataHoraFormatada,
           acao: `Alteração de Status para ${statusDestino}`,
-          detalhes: `Status do lote alterado de ${item.status} para ${statusDestino}.`
+          detalhes: `Status do lote alterado de ${item.status} para ${statusDestino}${
+            mantemFaturas && codigosFat ? ` (Faturas: ${codigosFat})` : ''
+          }.`
         };
         return {
           ...item,
+          guias: guiasAtualizadas,
           status: statusDestino,
           dataAlteracaoOuEnvio: agoraISO,
           atualizadoHa: agoraISO,
-          faturasEmitidas:
-            statusDestino === 'Faturada' || statusDestino === 'Enviada',
-          faturasEmitidasEm:
-            statusDestino === 'Faturada' || statusDestino === 'Enviada'
-              ? item.faturasEmitidasEm || dataHoraFormatada
-              : undefined,
+          faturasEmitidas: mantemFaturas,
+          faturasEmitidasEm: mantemFaturas
+            ? item.faturasEmitidasEm || dataHoraFormatada
+            : undefined,
           historicoLote: [novoEvento, ...(item.historicoLote ?? [])]
         };
       })
@@ -246,17 +335,29 @@ export function App() {
     descricao: string;
     tipoAtendimento: TipoAtendimentoLote;
     dataCriacao: string;
+    horaCriacao?: string;
     dataAlteracaoOuEnvio: string;
     valor: number;
     status: StatusFaturamento;
     prioridade: PrioridadeDemanda;
     guias: GuiaLote[];
+    codigoEnvioOperadora?: string;
+    codigoReenvioOperadora?: string;
     observacoes: string;
     historicoLote: HistoricoAlteracaoLote[];
     faturasEmitidasEm?: string;
     motivoUltimaExclusaoFatura?: string;
   }) {
     const somaGuias = dados.guias.reduce((acc, g) => acc + g.valor, 0);
+    const possuiFaturasEmitidas =
+      dados.status === 'Fechado' ||
+      dados.status === 'Enviado' ||
+      dados.status === 'Glosado' ||
+      dados.status === 'Reenviado';
+
+    const guiasFinais = possuiFaturasEmitidas
+      ? atribuirCodigosFaturaParaGuias(dados.guias, demandas)
+      : dados.guias.map((g) => ({ ...g, faturaId: undefined }));
 
     if (dados.id) {
       setDemandas((listaAnterior) =>
@@ -268,15 +369,17 @@ export function App() {
                 descricao: dados.descricao,
                 tipoAtendimento: item.tipoAtendimento,
                 dataCriacao: dados.dataCriacao,
+                horaCriacao: dados.horaCriacao || item.horaCriacao,
                 dataAlteracaoOuEnvio: dados.dataAlteracaoOuEnvio,
                 valor: somaGuias,
                 status: dados.status,
                 prioridade: dados.prioridade,
-                guias: dados.guias,
+                guias: guiasFinais,
+                codigoEnvioOperadora: dados.codigoEnvioOperadora,
+                codigoReenvioOperadora: dados.codigoReenvioOperadora,
                 observacoes: dados.observacoes,
                 historicoLote: dados.historicoLote,
-                faturasEmitidas:
-                  dados.status === 'Faturada' || dados.status === 'Enviada',
+                faturasEmitidas: possuiFaturasEmitidas,
                 faturasEmitidasEm: dados.faturasEmitidasEm,
                 motivoUltimaExclusaoFatura: dados.motivoUltimaExclusaoFatura,
                 atualizadoHa: dados.dataAlteracaoOuEnvio
@@ -286,14 +389,12 @@ export function App() {
       );
       setLoteSelecionadoId(dados.id);
     } else {
+      const todosCodigosLote = obterTodosCodigosLotes();
       const idNovo =
         dados.codigoCustomizado &&
-        !demandas.some((d) => d.id === dados.codigoCustomizado)
+        !todosCodigosLote.includes(dados.codigoCustomizado)
           ? dados.codigoCustomizado
-          : gerarIdUnico(
-              'FAT',
-              demandas.map((d) => d.id)
-            );
+          : gerarIdUnico('LOTE', todosCodigosLote);
 
       const novoLote: DemandaFinanceira = {
         id: idNovo,
@@ -301,15 +402,17 @@ export function App() {
         descricao: dados.descricao,
         tipoAtendimento: dados.tipoAtendimento,
         dataCriacao: dados.dataCriacao,
+        horaCriacao: dados.horaCriacao,
         dataAlteracaoOuEnvio: dados.dataAlteracaoOuEnvio,
         valor: somaGuias,
         status: dados.status,
         prioridade: dados.prioridade,
-        guias: dados.guias,
+        guias: guiasFinais,
+        codigoEnvioOperadora: dados.codigoEnvioOperadora,
+        codigoReenvioOperadora: dados.codigoReenvioOperadora,
         observacoes: dados.observacoes,
         historicoLote: dados.historicoLote,
-        faturasEmitidas:
-          dados.status === 'Faturada' || dados.status === 'Enviada',
+        faturasEmitidas: possuiFaturasEmitidas,
         faturasEmitidasEm: dados.faturasEmitidasEm,
         motivoUltimaExclusaoFatura: dados.motivoUltimaExclusaoFatura,
         categoria: 'Operadora',
@@ -326,63 +429,128 @@ export function App() {
     setDemandas((listaAnterior) => listaAnterior.filter((item) => item.id !== idAlvo));
   }
 
-  function salvarRecursoLote(idLote: string, motivo: string) {
+  function salvarRecursoLote(
+    idLote: string,
+    dadosGlosa: {
+      tipoGlosa: TipoGlosaLote;
+      motivo: string;
+      justificativaRecurso: string;
+    }
+  ) {
     const horarioAtual = new Date().toLocaleTimeString('pt-BR', {
       hour: '2-digit',
       minute: '2-digit'
     });
     const dataHoje = new Date().toLocaleDateString('pt-BR');
+    const dataHoraFormatada = `${dataHoje} às ${horarioAtual}`;
     const agoraISO = new Date().toISOString();
 
     setDemandas((listaAnterior) =>
-      listaAnterior.map((item) =>
-        item.id === idLote
-          ? {
-              ...item,
-              recurso: {
-                motivo,
-                dataAbertura: `${dataHoje} às ${horarioAtual}`
-              },
-              dataAlteracaoOuEnvio: agoraISO,
-              atualizadoHa: agoraISO
-            }
-          : item
-      )
+      listaAnterior.map((item) => {
+        if (item.id !== idLote) return item;
+        const novoEvento: HistoricoAlteracaoLote = {
+          id: `HL-${Date.now()}`,
+          dataHora: dataHoraFormatada,
+          acao: `Tratamento de Glosa (${dadosGlosa.tipoGlosa})`,
+          detalhes: `Motivo: ${dadosGlosa.motivo}${
+            dadosGlosa.justificativaRecurso
+              ? ` | Providência: ${dadosGlosa.justificativaRecurso}`
+              : ''
+          }`
+        };
+
+        return {
+          ...item,
+          status: item.status === 'Reenviado' ? 'Reenviado' : 'Glosado',
+          recurso: {
+            tipoGlosa: dadosGlosa.tipoGlosa,
+            motivo: dadosGlosa.motivo,
+            justificativaRecurso: dadosGlosa.justificativaRecurso,
+            dataAbertura: dataHoraFormatada
+          },
+          historicoLote: [novoEvento, ...(item.historicoLote ?? [])],
+          dataAlteracaoOuEnvio: agoraISO,
+          atualizadoHa: agoraISO
+        };
+      })
     );
 
     setLoteParaRecurso(null);
   }
 
+  function criarNovaGuiaTussParaAtendimento(novaGuia: GuiaLote) {
+    setGuiasExtrasCriadas((ant) => [novaGuia, ...ant]);
+  }
+
   function editarGuiaTussConsolidada(
     guiaId: string,
-    dados: { codigoTuss: string; descricao: string; valor: number }
+    dados: {
+      codigoTuss: string;
+      descricao: string;
+      valor: number;
+      senhaAutorizacao?: string;
+    }
   ) {
     setAtendimentos((ant) =>
       aplicarCancelamentoAutomaticoAtendimentos(
-        ant.map((atd) =>
-          atd.id === guiaId
-            ? {
-                ...atd,
-                codigoTuss: dados.codigoTuss,
-                descricao: dados.descricao,
-                valor: dados.valor
-              }
-            : atd
-        )
+        ant.map((atd) => {
+          const guiasDerivadas = extrairGuiasDaConsulta(atd);
+          const guiaAlvo = guiasDerivadas.find((gd) => gd.numeroGuia === guiaId);
+          if (!guiaAlvo && atd.id !== guiaId && atd.numeroGuia !== guiaId) {
+            return atd;
+          }
+
+          if (guiaAlvo && atd.procedimentos && atd.procedimentos.length > 0 && guiasDerivadas.length > 1) {
+            const idsProcsGuia = new Set(guiaAlvo.procedimentos.map((p) => p.id));
+            const novosProcs = atd.procedimentos.map((p) => {
+              if (!idsProcsGuia.has(p.id)) return p;
+              return {
+                ...p,
+                senhaAutorizacao: dados.senhaAutorizacao || p.senhaAutorizacao,
+                numeroGuia: guiaId
+              };
+            });
+            return {
+              ...atd,
+              procedimentos: novosProcs
+            };
+          }
+
+          return {
+            ...atd,
+            codigoTuss: dados.codigoTuss,
+            senhaAutorizacao: dados.senhaAutorizacao || atd.senhaAutorizacao,
+            descricao: dados.descricao,
+            valor: dados.valor
+          };
+        })
       ).listaAtualizada
+    );
+
+    setGuiasExtrasCriadas((ant) =>
+      ant.map((ge) =>
+        ge.id === guiaId
+          ? {
+              ...ge,
+              codigoTuss: dados.codigoTuss,
+              senhaAutorizacao: dados.senhaAutorizacao || ge.senhaAutorizacao,
+              procedimento: dados.descricao,
+              valor: dados.valor
+            }
+          : ge
+      )
     );
 
     setDemandas((ant) =>
       ant.map((lote) => {
-        const possui = lote.guias.some(
-          (g) => g.id === guiaId || g.atendimentoId === guiaId
-        );
+        const possui = lote.guias.some((g) => g.id === guiaId);
         if (!possui) return lote;
         const novasGuias = lote.guias.map((g) =>
-          g.id === guiaId || g.atendimentoId === guiaId
+          g.id === guiaId
             ? {
                 ...g,
                 codigoTuss: dados.codigoTuss,
+                senhaAutorizacao: dados.senhaAutorizacao || g.senhaAutorizacao,
                 procedimento: dados.descricao,
                 valor: dados.valor
               }
@@ -399,26 +567,16 @@ export function App() {
   }
 
   function cancelarGuiaTussConsolidada(guiaId: string) {
-    setAtendimentos((ant) =>
-      ant.map((atd) =>
-        atd.id === guiaId
-          ? { ...atd, status: 'Cancelado', guiaCancelada: true }
-          : atd
-      )
-    );
+    setGuiasExtrasCriadas((ant) => ant.filter((ge) => ge.id !== guiaId));
 
     setDemandas((ant) =>
       ant.map((lote) => {
-        const possui = lote.guias.some(
-          (g) => g.id === guiaId || g.atendimentoId === guiaId
-        );
+        const possui = lote.guias.some((g) => g.id === guiaId);
         if (!possui) return lote;
         return {
           ...lote,
           guias: lote.guias.map((g) =>
-            g.id === guiaId || g.atendimentoId === guiaId
-              ? { ...g, statusGuia: 'Cancelada' }
-              : g
+            g.id === guiaId ? { ...g, statusGuia: 'Cancelada' } : g
           )
         };
       })
@@ -430,17 +588,41 @@ export function App() {
       return;
     }
 
-    setAtendimentos((ant) => ant.filter((atd) => atd.id !== guiaId));
+    setAtendimentos((ant) => {
+      const novaLista: Atendimento[] = [];
+      for (const atd of ant) {
+        const guiasDerivadas = extrairGuiasDaConsulta(atd);
+        const guiaAlvo = guiasDerivadas.find((gd) => gd.numeroGuia === guiaId);
+        if (!guiaAlvo && atd.id !== guiaId && atd.numeroGuia !== guiaId) {
+          novaLista.push(atd);
+          continue;
+        }
+        if (guiaAlvo && guiasDerivadas.length > 1 && atd.procedimentos) {
+          const idsRemover = new Set(guiaAlvo.procedimentos.map((p) => p.id));
+          const procsRestantes = atd.procedimentos.filter((p) => !idsRemover.has(p.id));
+          if (procsRestantes.length > 0) {
+            const novoBruto = procsRestantes.reduce((s, p) => s + p.valor, 0);
+            novaLista.push({
+              ...atd,
+              procedimentos: procsRestantes,
+              numeroGuia: procsRestantes[0]?.numeroGuia || atd.numeroGuia,
+              senhaAutorizacao: procsRestantes[0]?.senhaAutorizacao || atd.senhaAutorizacao,
+              codigoTuss: procsRestantes.map((p) => p.codigoTuss).join(' + '),
+              descricao: procsRestantes.map((p) => p.descricao).join(' + '),
+              valor: novoBruto
+            });
+          }
+        }
+      }
+      return novaLista;
+    });
+    setGuiasExtrasCriadas((ant) => ant.filter((ge) => ge.id !== guiaId));
 
     setDemandas((ant) =>
       ant.map((lote) => {
-        const possui = lote.guias.some(
-          (g) => g.id === guiaId || g.atendimentoId === guiaId
-        );
+        const possui = lote.guias.some((g) => g.id === guiaId);
         if (!possui) return lote;
-        const novasGuias = lote.guias.filter(
-          (g) => g.id !== guiaId && g.atendimentoId !== guiaId
-        );
+        const novasGuias = lote.guias.filter((g) => g.id !== guiaId);
         const novoTotal = novasGuias.reduce((acc, g) => acc + g.valor, 0);
         return {
           ...lote,
@@ -509,8 +691,13 @@ export function App() {
 
     if (dados.id) {
       const guiaExistente = guiasParticulares.find((g) => g.id === dados.id);
-      if (guiaExistente?.status === 'Fechado') {
-        alert('Guias com status Fechado não podem ser editadas!');
+      if (
+        guiaExistente?.status === 'Pago' ||
+        guiaExistente?.status === 'Fechado'
+      ) {
+        alert(
+          `Guias particulares com status "${guiaExistente.status}" estão bloqueadas e não podem sofrer alterações!`
+        );
         return;
       }
 
@@ -528,10 +715,7 @@ export function App() {
     } else {
       const novaGuia: GuiaParticular = {
         ...dados,
-        id: gerarIdUnico(
-          'GPART',
-          guiasParticulares.map((g) => g.id)
-        ),
+        id: gerarIdUnico('G', obterTodosCodigosGuias(), 5000, 9999),
         atualizadoEm: agoraISO
       };
       setGuiasParticulares((listaAnterior) => [novaGuia, ...listaAnterior]);
@@ -540,8 +724,10 @@ export function App() {
 
   function alterarStatusGuiaParticular(idAlvo: string, novoStatus: StatusParticular) {
     const guiaExistente = guiasParticulares.find((g) => g.id === idAlvo);
-    if (guiaExistente?.status === 'Fechado') {
-      alert('Guias com status Fechado já estão em lote e não podem ser alteradas!');
+    if (guiaExistente?.status === 'Pago' || guiaExistente?.status === 'Fechado') {
+      alert(
+        `Guias particulares com status "${guiaExistente.status}" não permitem nenhuma alteração!`
+      );
       return;
     }
 
@@ -560,6 +746,13 @@ export function App() {
   }
 
   function excluirGuiaParticular(idAlvo: string) {
+    const guiaExistente = guiasParticulares.find((g) => g.id === idAlvo);
+    if (guiaExistente?.status === 'Pago' || guiaExistente?.status === 'Fechado') {
+      alert(
+        `Guias particulares com status "${guiaExistente.status}" estão bloqueadas e não podem ser excluídas!`
+      );
+      return;
+    }
     if (!pedirConfirmacaoExclusao('Deseja realmente excluir esta guia particular?')) {
       return;
     }
@@ -624,8 +817,8 @@ export function App() {
     }
 
     const idNovoLote = gerarIdUnico(
-      'LPART',
-      lotesParticularesArquivados.map((l) => l.id),
+      'LOTE',
+      obterTodosCodigosLotes(),
       500,
       999
     );
@@ -780,23 +973,98 @@ export function App() {
   }
 
   function salvarAtendimento(dados: Omit<Atendimento, 'id'> & { id?: string }) {
-    if (dados.id) {
+    const jaExiste = Boolean(
+      dados.id && atendimentos.some((a) => a.id === dados.id)
+    );
+
+    if (jaExiste && dados.id) {
+      const consultaAtualizada: Atendimento = { ...dados, id: dados.id };
+      const guiasDerivadas = extrairGuiasDaConsulta(consultaAtualizada);
+      const mapaGuias = new Map(guiasDerivadas.map((gd) => [gd.numeroGuia, gd]));
+
       setAtendimentos((listaAnterior) =>
         aplicarCancelamentoAutomaticoAtendimentos(
           listaAnterior.map((a) =>
-            a.id === dados.id ? { ...dados, id: dados.id } : a
+            a.id === dados.id ? consultaAtualizada : a
           )
         ).listaAtualizada
       );
+
+      // Atualiza também guias vinculadas em lotes abertos/pendentes/glosados
+      setDemandas((ant) =>
+        ant.map((lote) => {
+          if (
+            lote.status === 'Fechado' ||
+            lote.status === 'Enviado' ||
+            lote.status === 'Reenviado'
+          ) {
+            return lote;
+          }
+          const possui = lote.guias.some(
+            (g) =>
+              g.atendimentoId === dados.id ||
+              mapaGuias.has(g.id) ||
+              (dados.numeroGuia && g.id === dados.numeroGuia)
+          );
+          if (!possui) return lote;
+          const novasGuias = lote.guias.map((g) => {
+            const gd =
+              mapaGuias.get(g.id) ||
+              (g.atendimentoId === dados.id && guiasDerivadas.length === 1
+                ? guiasDerivadas[0]
+                : undefined);
+            if (!gd) return g;
+            return {
+              ...g,
+              id: gd.numeroGuia,
+              numeroGuiaOperadora: gd.numeroGuiaOperadora || gd.numeroGuia,
+              senhaAutorizacao:
+                dados.operadora === 'Particular'
+                  ? undefined
+                  : gd.senhaAutorizacao || g.senhaAutorizacao,
+              codigoTuss: gd.codigoTuss,
+              procedimento: gd.descricao,
+              procedimentos: gd.procedimentos,
+              valor: gd.valorLiquido
+            };
+          });
+          const novoTotal = novasGuias.reduce((acc, g) => acc + g.valor, 0);
+          return {
+            ...lote,
+            guias: novasGuias,
+            valor: novoTotal
+          };
+        })
+      );
     } else {
+      const novoId =
+        dados.id && !atendimentos.some((a) => a.id === dados.id)
+          ? dados.id
+          : gerarIdUnico(
+              'CONS',
+              atendimentos.map((a) => a.id),
+              910,
+              9999
+            );
+      const guiasExistentes = obterTodosCodigosGuias();
+      const numeroGuiaPrincipal =
+        dados.numeroGuia && !guiasExistentes.includes(dados.numeroGuia)
+          ? dados.numeroGuia
+          : gerarIdUnico('G', guiasExistentes, 5000, 9999);
+      const numeroGuiaOperadoraFinal =
+        dados.numeroGuiaOperadora?.trim() || numeroGuiaPrincipal;
+
       const novoAtd: Atendimento = {
         ...dados,
-        id: gerarIdUnico(
-          'ATD',
-          atendimentos.map((a) => a.id),
-          910,
-          9999
-        )
+        id: novoId,
+        numeroGuia: numeroGuiaPrincipal,
+        numeroGuiaOperadora: numeroGuiaOperadoraFinal,
+        senhaAutorizacao:
+          dados.operadora === 'Particular'
+            ? undefined
+            : dados.senhaAutorizacao ||
+              `AUTH-${Math.floor(100000 + Math.random() * 900000)}`,
+        status: 'Realizado'
       };
       setAtendimentos((listaAnterior) =>
         aplicarCancelamentoAutomaticoAtendimentos([novoAtd, ...listaAnterior])
@@ -819,47 +1087,14 @@ export function App() {
   }
 
   function excluirAtendimento(idAlvo: string) {
-    if (!pedirConfirmacaoExclusao('Deseja realmente excluir este atendimento?')) return;
-    setAtendimentos((listaAnterior) =>
-      listaAnterior.filter((a) => a.id !== idAlvo)
-    );
-  }
-
-  function salvarClienteVip(dados: Omit<ClienteVIP, 'id'> & { id?: string }) {
-    if (dados.id) {
-      setClientesVip((listaAnterior) =>
-        listaAnterior.map((c) =>
-          c.id === dados.id ? { ...dados, id: dados.id } : c
-        )
-      );
-    } else {
-      const novoCliente: ClienteVIP = {
-        ...dados,
-        id: gerarIdUnico(
-          'VIP',
-          clientesVip.map((c) => c.id),
-          500,
-          999
-        )
-      };
-      setClientesVip((listaAnterior) => [novoCliente, ...listaAnterior]);
-    }
-  }
-
-  function excluirClienteVip(idAlvo: string) {
-    if (clientesVip.length <= 1) {
-      alert('Mantenha pelo menos um cliente VIP cadastrado no sistema!');
-      return;
-    }
     if (
       !pedirConfirmacaoExclusao(
-        'Deseja realmente excluir este cliente VIP / Influencer?'
+        'Deseja realmente excluir este lançamento de produção?'
       )
-    ) {
+    )
       return;
-    }
-    setClientesVip((listaAnterior) =>
-      listaAnterior.filter((c) => c.id !== idAlvo)
+    setAtendimentos((listaAnterior) =>
+      listaAnterior.filter((a) => a.id !== idAlvo)
     );
   }
 
@@ -873,7 +1108,7 @@ export function App() {
       profissionais,
       pacientes,
       atendimentos,
-      clientesVip,
+      guiasExtrasCriadas,
       regrasGestao,
       preferencias
     };
@@ -928,9 +1163,11 @@ export function App() {
           <GuiasPage
             atendimentos={atendimentos}
             demandas={demandas}
+            guiasExtrasCriadas={guiasExtrasCriadas}
             pacientes={pacientes}
             medicos={profissionais}
             operadoras={operadoras}
+            aoCriarNovaGuiaTuss={criarNovaGuiaTussParaAtendimento}
             aoEditarGuiaTuss={editarGuiaTussConsolidada}
             aoCancelarGuiaTuss={cancelarGuiaTussConsolidada}
             aoExcluirGuiaTuss={excluirGuiaTussConsolidada}
@@ -971,6 +1208,7 @@ export function App() {
         {abaAtiva === 'atendimentos' && (
           <AtendimentosPage
             atendimentos={atendimentos}
+            demandas={demandas}
             pacientes={pacientes}
             medicos={profissionais}
             operadoras={operadoras}
@@ -1015,15 +1253,6 @@ export function App() {
           />
         )}
 
-        {abaAtiva === 'clientes' && (
-          <ClientesPage
-            clientesVip={clientesVip}
-            profissionais={profissionais}
-            aoSalvarClienteVip={salvarClienteVip}
-            aoExcluirClienteVip={excluirClienteVip}
-          />
-        )}
-
         {abaAtiva === 'relatorios' && (
           <RelatoriosPage
             demandasOperadoras={demandas}
@@ -1050,6 +1279,8 @@ export function App() {
         <ModalLote
           operadoras={operadoras}
           atendimentos={atendimentos}
+          demandas={demandas}
+          guiasExtrasCriadas={guiasExtrasCriadas}
           loteInicial={loteSelecionado}
           aoFechar={() => {
             setModalLoteAberto(false);

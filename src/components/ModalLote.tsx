@@ -1,8 +1,7 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import {
   X,
   AlertCircle,
-  Lock,
   MessageSquareWarning,
   Plus,
   Trash2,
@@ -11,17 +10,25 @@ import {
   Printer,
   History,
   Layers,
-  CheckCircle2
+  CheckCircle2,
+  Search,
+  Send,
+  FolderOpen,
+  Clock,
+  RotateCcw,
+  Check
 } from 'lucide-react';
-import type {
-  Atendimento,
-  DemandaFinanceira,
-  GuiaLote,
-  HistoricoAlteracaoLote,
-  Operadora,
-  PrioridadeDemanda,
-  StatusFaturamento,
-  TipoAtendimentoLote
+import {
+  extrairGuiasDaConsulta,
+  type Atendimento,
+  type DemandaFinanceira,
+  type GuiaLote,
+  type HistoricoAlteracaoLote,
+  type Operadora,
+  type PrioridadeDemanda,
+  type ProcedimentoAtendimento,
+  type StatusFaturamento,
+  type TipoAtendimentoLote
 } from '../data/dadosFaturamento';
 import {
   formatarDataBR,
@@ -30,9 +37,27 @@ import {
   obterClasseBadge
 } from '../utils/formatadores';
 
+export interface GuiaCandidataDisponivel {
+  numeroGuia: string;
+  atendimentoId: string;
+  senhaAutorizacao: string;
+  tipoAtendimento: TipoAtendimentoLote;
+  codigoTuss: string;
+  pacienteId: string;
+  pacienteNome: string;
+  medicoNome: string;
+  procedimento: string;
+  procedimentos?: ProcedimentoAtendimento[];
+  data: string;
+  operadora: string;
+  valor: number;
+}
+
 interface ModalLoteProps {
   operadoras: Operadora[];
   atendimentos: Atendimento[];
+  demandas: DemandaFinanceira[];
+  guiasExtrasCriadas?: GuiaLote[];
   loteInicial?: DemandaFinanceira | null;
   aoFechar: () => void;
   aoSalvar: (dados: {
@@ -42,11 +67,14 @@ interface ModalLoteProps {
     descricao: string;
     tipoAtendimento: TipoAtendimentoLote;
     dataCriacao: string;
+    horaCriacao?: string;
     dataAlteracaoOuEnvio: string;
     valor: number;
     status: StatusFaturamento;
     prioridade: PrioridadeDemanda;
     guias: GuiaLote[];
+    codigoEnvioOperadora?: string;
+    codigoReenvioOperadora?: string;
     observacoes: string;
     historicoLote: HistoricoAlteracaoLote[];
     faturasEmitidasEm?: string;
@@ -64,34 +92,73 @@ const TIPOS_ATENDIMENTO_LOTE: TipoAtendimentoLote[] = [
   'Misto'
 ];
 
-interface GrupoAtendimentoFatura {
-  chaveAtendimento: string;
+export interface GrupoFaturaPorSenha {
+  chaveFatura: string;
+  faturaId?: string;
+  senhaAutorizacao: string;
+  atendimentoId: string;
+  pacienteId?: string;
   pacienteNome: string;
   medicoNome: string;
   data: string;
   guias: GuiaLote[];
+  procedimentos: (ProcedimentoAtendimento & { guiaId: string })[];
   subtotal: number;
 }
 
-function agruparGuiasPorAtendimento(guias: GuiaLote[]): GrupoAtendimentoFatura[] {
-  const mapa = new Map<string, GrupoAtendimentoFatura>();
+export function agruparGuiasPorSenhaAutorizacao(
+  guias: GuiaLote[]
+): GrupoFaturaPorSenha[] {
+  const mapa = new Map<string, GrupoFaturaPorSenha>();
 
   guias.forEach((g) => {
-    const chave = g.atendimentoId || `AVULSO-${g.id}`;
-    const existente = mapa.get(chave);
-    if (existente) {
-      existente.guias.push(g);
-      existente.subtotal += g.valor;
-    } else {
-      mapa.set(chave, {
-        chaveAtendimento: chave,
-        pacienteNome: g.pacienteNome,
-        medicoNome: g.medicoNome,
-        data: g.data,
-        guias: [g],
-        subtotal: g.valor
-      });
-    }
+    const senhaGuiaPadrao = g.senhaAutorizacao || `SENHA-${g.id}`;
+    const procsDaGuia: ProcedimentoAtendimento[] =
+      g.procedimentos && g.procedimentos.length > 0
+        ? g.procedimentos.map((proc) => ({
+          ...proc,
+          senhaAutorizacao: proc.senhaAutorizacao || senhaGuiaPadrao
+        }))
+        : [
+          {
+            id: `PROC-${g.id}`,
+            codigoTuss: g.codigoTuss || '10101012',
+            descricao: g.procedimento,
+            valor: g.valor,
+            senhaAutorizacao: senhaGuiaPadrao,
+            numeroGuia: g.id
+          }
+        ];
+
+    procsDaGuia.forEach((proc) => {
+      const senhaProc = proc.senhaAutorizacao || senhaGuiaPadrao;
+      const chave = `${g.pacienteId || g.pacienteNome}-${senhaProc}`;
+      const existente = mapa.get(chave);
+      if (existente) {
+        if (!existente.guias.some((eg) => eg.id === g.id)) {
+          existente.guias.push(g);
+        }
+        if (!existente.faturaId && g.faturaId) {
+          existente.faturaId = g.faturaId;
+        }
+        existente.procedimentos.push({ ...proc, guiaId: g.id });
+        existente.subtotal += proc.valor;
+      } else {
+        mapa.set(chave, {
+          chaveFatura: chave,
+          faturaId: g.faturaId,
+          senhaAutorizacao: senhaProc,
+          atendimentoId: g.atendimentoId || g.id,
+          pacienteId: g.pacienteId,
+          pacienteNome: g.pacienteNome,
+          medicoNome: g.medicoNome,
+          data: g.data,
+          guias: [g],
+          procedimentos: [{ ...proc, guiaId: g.id }],
+          subtotal: proc.valor
+        });
+      }
+    });
   });
 
   return Array.from(mapa.values());
@@ -104,71 +171,90 @@ export function gerarEImprimirFaturasLotePDF(dadosLote: {
   tipoAtendimento: TipoAtendimentoLote;
   dataCriacao: string;
   guias: GuiaLote[];
+  codigoEnvioOperadora?: string;
 }) {
-  const grupos = agruparGuiasPorAtendimento(dadosLote.guias);
+  const faturasPorSenha = agruparGuiasPorSenhaAutorizacao(dadosLote.guias);
   const dataEmissao = new Date().toLocaleString('pt-BR');
 
-  const paginasHtml = grupos
-    .map((grupo, idx) => {
-      const linhasGuias = grupo.guias
+  // Agrupamos as faturas por paciente para que a paginação (ex: 1/2 e 2/2) seja equivalente ao paciente
+  const faturasPorPaciente = new Map<string, GrupoFaturaPorSenha[]>();
+  faturasPorSenha.forEach((fat) => {
+    const listaPac = faturasPorPaciente.get(fat.pacienteNome) || [];
+    listaPac.push(fat);
+    faturasPorPaciente.set(fat.pacienteNome, listaPac);
+  });
+
+  const blocosPaginasHtml: string[] = [];
+
+  faturasPorPaciente.forEach((faturasDoPaciente) => {
+    const totalPaginasPaciente = faturasDoPaciente.length;
+
+    faturasDoPaciente.forEach((fatura, idxPaginaPac) => {
+      const numeroPaginaAtual = idxPaginaPac + 1;
+      const numerosGuiasTexto = fatura.guias.map((g) => g.id).join(', ');
+      const codigoFaturaPK = fatura.faturaId || `FAT-${100 + idxPaginaPac}`;
+
+      const linhasProcedimentos = fatura.procedimentos
         .map(
-          (g) => `
+          (proc) => `
           <tr>
-            <td><strong>${g.id}</strong></td>
-            <td>${g.codigoTuss || '10101012'}</td>
-            <td>${g.procedimento}</td>
-            <td>${formatarDataBR(g.data)}</td>
-            <td><strong>${formatarMoeda(g.valor)}</strong></td>
+            <td><strong>${proc.guiaId || fatura.guias[0]?.id}</strong></td>
+            <td><strong>${proc.senhaAutorizacao || fatura.senhaAutorizacao}</strong></td>
+            <td>${proc.codigoTuss || '10101012'}</td>
+            <td>${proc.descricao}</td>
+            <td>${formatarDataBR(fatura.data)}</td>
+            <td><strong>${formatarMoeda(proc.valor)}</strong></td>
           </tr>`
         )
         .join('');
 
-      return `
+      blocosPaginasHtml.push(`
       <div class="invoice-page">
         <div class="header-box">
           <div>
-            <div class="title">FATURA DE ATENDIMENTO HOSPITALAR — LOTE ${dadosLote.id}</div>
-            <div class="subtitle">Gwaan Analytics • Faturamento de Convênios (${dadosLote.operadora})</div>
+            <div class="title">FATURA ${codigoFaturaPK} — LOTE ${dadosLote.id}</div>
+            <div class="subtitle">Gwaan Analytics • Cobrança de Operadora (${dadosLote.operadora}) • Guia(s): ${numerosGuiasTexto}</div>
           </div>
           <div style="text-align: right;">
-            <div class="label">Página da Fatura</div>
-            <div class="val" style="font-size: 15px;">Atendimento ${idx + 1} de ${grupos.length}</div>
+            <div class="label">Chave Primária da Fatura</div>
+            <div class="val" style="font-size: 16px;">${codigoFaturaPK} (Pág. ${numeroPaginaAtual}/${totalPaginasPaciente})</div>
             <div class="subtitle">Emissão: ${dataEmissao}</div>
           </div>
         </div>
 
-        <div class="section-title">1. Identificação do Lote e Convênio</div>
+        <div class="section-title">1. Chaves Primárias do Documento (Lote, Fatura, Guia, Consulta e Paciente)</div>
         <div class="grid">
-          <div class="cell"><span class="label">Código do Lote</span><span class="val">${dadosLote.id}</span></div>
+          <div class="cell"><span class="label">Cód. Lote (PK)</span><span class="val">${dadosLote.id}</span></div>
+          <div class="cell"><span class="label">Cód. Fatura (PK)</span><span class="val">${codigoFaturaPK}</span></div>
+          <div class="cell"><span class="label">Cód. Guia(s) (PK)</span><span class="val">${numerosGuiasTexto}</span></div>
+          <div class="cell"><span class="label">Cód. Consulta / Paciente</span><span class="val">${fatura.atendimentoId} / ${fatura.pacienteId || '-'}</span></div>
+        </div>
+
+        <div class="section-title">2. Dados do Paciente, Operadora e Senha de Autorização (Obrigatória para Cobrança)</div>
+        <div class="grid">
+          <div class="cell"><span class="label">Paciente Beneficiário</span><span class="val">${fatura.pacienteNome} (${fatura.pacienteId || '-'})</span></div>
+          <div class="cell"><span class="label">Senha de Autorização</span><span class="val">${fatura.senhaAutorizacao}</span></div>
           <div class="cell"><span class="label">Operadora</span><span class="val">${dadosLote.operadora}</span></div>
-          <div class="cell"><span class="label">Tipo de Tratamento</span><span class="val">${dadosLote.tipoAtendimento}</span></div>
-          <div class="cell"><span class="label">Descrição do Lote</span><span class="val">${dadosLote.descricao}</span></div>
+          <div class="cell"><span class="label">Profissional Executante</span><span class="val">${fatura.medicoNome}</span></div>
         </div>
 
-        <div class="section-title">2. Dados Consolidados do Atendimento (${grupo.chaveAtendimento})</div>
-        <div class="grid">
-          <div class="cell"><span class="label">Cód. Atendimento</span><span class="val">${grupo.chaveAtendimento}</span></div>
-          <div class="cell"><span class="label">Paciente Beneficiário</span><span class="val">${grupo.pacienteNome}</span></div>
-          <div class="cell"><span class="label">Profissional Executante</span><span class="val">${grupo.medicoNome}</span></div>
-          <div class="cell"><span class="label">Data Base</span><span class="val">${formatarDataBR(grupo.data)}</span></div>
-        </div>
-
-        <div class="section-title">3. Guias Incluídas na Fatura deste Atendimento (${grupo.guias.length} guia(s))</div>
+        <div class="section-title">3. Procedimentos Autorizados nesta Senha / Guia (${fatura.procedimentos.length} item(ns))</div>
         <table>
           <thead>
             <tr>
-              <th>Nº da Guia</th>
+              <th>Nº da Guia (G-nº)</th>
+              <th>Senha Autorização</th>
               <th>Código TUSS</th>
               <th>Descrição do Procedimento / Exame</th>
               <th>Data</th>
-              <th>Valor Faturado</th>
+              <th>Valor Cobrado</th>
             </tr>
           </thead>
           <tbody>
-            ${linhasGuias}
+            ${linhasProcedimentos}
             <tr style="background: #f5f7ed;">
-              <td colspan="4"><strong>Total da Fatura do Atendimento (${grupo.chaveAtendimento})</strong></td>
-              <td><strong>${formatarMoeda(grupo.subtotal)}</strong></td>
+              <td colspan="5"><strong>Total da Fatura ${codigoFaturaPK} (Guia ${numerosGuiasTexto} • Senha ${fatura.senhaAutorizacao})</strong></td>
+              <td><strong>${formatarMoeda(fatura.subtotal)}</strong></td>
             </tr>
           </tbody>
         </table>
@@ -177,9 +263,9 @@ export function gerarEImprimirFaturasLotePDF(dadosLote: {
           <div class="sig-line">Auditoria e Faturamento — Gwaan Analytics</div>
           <div class="sig-line">Conferência Operadora (${dadosLote.operadora})</div>
         </div>
-      </div>`;
-    })
-    .join('');
+      </div>`);
+    });
+  });
 
   const htmlCompleto = `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -208,7 +294,7 @@ export function gerarEImprimirFaturasLotePDF(dadosLote: {
   </style>
 </head>
 <body>
-  ${paginasHtml}
+  ${blocosPaginasHtml.join('')}
 </body>
 </html>`;
 
@@ -229,36 +315,59 @@ export function gerarEImprimirFaturasLotePDF(dadosLote: {
 export function ModalLote({
   operadoras,
   atendimentos,
+  demandas,
+  guiasExtrasCriadas = [],
   loteInicial,
   aoFechar,
   aoSalvar,
   aoAbrirRecurso
 }: ModalLoteProps) {
   const modoEdicao = Boolean(loteInicial);
-  const bloqueadoPorEnviada = loteInicial?.status === 'Enviada';
-
-  const hojeISO = new Date().toISOString().slice(0, 10);
+  const agoraRef = new Date();
+  const hojeISO = agoraRef.toISOString().slice(0, 10);
+  const horaAgora = agoraRef.toLocaleTimeString('pt-BR', {
+    hour: '2-digit',
+    minute: '2-digit'
+  });
 
   const [abaAtiva, setAbaAtiva] = useState<'dados' | 'atendimentos' | 'historico'>(
     'dados'
   );
 
-  const [codigo, setCodigo] = useState<string>(
-    loteInicial?.id ?? `FAT-${Math.floor(1000 + Math.random() * 9000)}`
+  const [abaSubModalLupa, setAbaSubModalLupa] = useState<'catalogo' | 'conferencia'>(
+    'catalogo'
   );
+
+  const [codigo, setCodigo] = useState<string>(() => {
+    if (loteInicial?.id) return loteInicial.id;
+    const usados = new Set(demandas.map((d) => d.id.toUpperCase()));
+    let num = Math.floor(4900 + Math.random() * 4000);
+    while (usados.has(`LOTE-${num}`)) {
+      num++;
+    }
+    return `LOTE-${num}`;
+  });
   const [operadoraSelecionada, setOperadoraSelecionada] = useState<string>(
     loteInicial?.operadora ?? (operadoras[0]?.nome || '')
   );
-  const [descricao, setDescricao] = useState<string>(loteInicial?.descricao ?? '');
   const [tipoAtendimento, setTipoAtendimento] = useState<TipoAtendimentoLote>(
     loteInicial?.tipoAtendimento ?? 'SADT / Exames'
   );
-  const [dataCriacao, setDataCriacao] = useState<string>(
-    loteInicial?.dataCriacao ?? hojeISO
+  const [dataCriacao] = useState<string>(loteInicial?.dataCriacao ?? hojeISO);
+  const [horaCriacao] = useState<string>(() => {
+    if (loteInicial?.horaCriacao) return loteInicial.horaCriacao;
+    const match = (loteInicial?.dataAlteracaoOuEnvio || '').match(/(\d{2}:\d{2})/);
+    return match ? match[1] : horaAgora;
+  });
+
+  // Status salvo no lote vs status selecionado no modal
+  const [statusSalvo, setStatusSalvo] = useState<StatusFaturamento>(
+    loteInicial?.status ?? 'Aberto'
   );
   const [status, setStatus] = useState<StatusFaturamento>(
     loteInicial?.status ?? 'Aberto'
   );
+
   const [prioridade, setPrioridade] = useState<PrioridadeDemanda>(
     loteInicial?.prioridade ?? 'Média'
   );
@@ -272,34 +381,193 @@ export function ModalLote({
   const [faturasEmitidasEm, setFaturasEmitidasEm] = useState<string | undefined>(
     loteInicial?.faturasEmitidasEm
   );
-  const [motivoUltimaExclusaoFatura, setMotivoUltimaExclusaoFatura] = useState<
-    string | undefined
-  >(loteInicial?.motivoUltimaExclusaoFatura);
+  const motivoUltimaExclusaoFatura = loteInicial?.motivoUltimaExclusaoFatura;
 
-  const [exibindoCaixaExcluirFatura, setExibindoCaixaExcluirFatura] =
-    useState<boolean>(false);
-  const [justificativaExclusaoFatura, setJustificativaExclusaoFatura] =
-    useState<string>('');
+  const [codigoEnvioOperadora, setCodigoEnvioOperadora] = useState<string>(
+    loteInicial?.codigoEnvioOperadora ?? ''
+  );
+  const [codigoReenvioOperadora, setCodigoReenvioOperadora] = useState<string>(
+    loteInicial?.codigoReenvioOperadora ?? ''
+  );
+  const [inputCodigoOperadora, setInputCodigoOperadora] = useState<string>('');
+  const [inputCodigoReenvio, setInputCodigoReenvio] = useState<string>('');
 
-  const [atendimentoParaImportarId, setAtendimentoParaImportarId] =
-    useState<string>('');
-  const [guiaPaciente, setGuiaPaciente] = useState<string>('');
-  const [guiaMedico, setGuiaMedico] = useState<string>('');
-  const [guiaProcedimento, setGuiaProcedimento] = useState<string>('');
-  const [guiaCodigoTuss, setGuiaCodigoTuss] = useState<string>('10101012');
-  const [guiaData, setGuiaData] = useState<string>(hojeISO);
-  const [guiaValor, setGuiaValor] = useState<string>('');
+  // Snapshot dos últimos dados salvos
+  const [snapshotSalvo, setSnapshotSalvo] = useState(() => ({
+    operadora: loteInicial?.operadora ?? (operadoras[0]?.nome || ''),
+    tipoAtendimento: (loteInicial?.tipoAtendimento ??
+      'SADT / Exames') as TipoAtendimentoLote,
+    status: (loteInicial?.status ?? 'Aberto') as StatusFaturamento,
+    prioridade: (loteInicial?.prioridade ?? 'Média') as PrioridadeDemanda,
+    observacoes: loteInicial?.observacoes ?? '',
+    codigoEnvioOperadora: loteInicial?.codigoEnvioOperadora ?? '',
+    codigoReenvioOperadora: loteInicial?.codigoReenvioOperadora ?? '',
+    guias: [...(loteInicial?.guias ?? [])]
+  }));
+
+  // Sincroniza quando o ModalRecurso salva uma tratativa de glosa com o ModalLote aberto ao fundo
+  useEffect(() => {
+    if (!loteInicial) return;
+    setHistoricoLote(loteInicial.historicoLote ?? []);
+    if (loteInicial.recurso && loteInicial.status === 'Glosado') {
+      setStatus('Glosado');
+      setStatusSalvo('Glosado');
+      setSnapshotSalvo((ant) => ({
+        ...ant,
+        status: 'Glosado'
+      }));
+    }
+  }, [loteInicial?.recurso, loteInicial?.historicoLote, loteInicial?.status]);
+
+  // Busca de guia por Nº da Guia (G-nº) ou modal de lupa
+  const [numeroGuiaInput, setNumeroGuiaInput] = useState<string>('');
+  const [modalLupaGuiasAberto, setModalLupaGuiasAberto] = useState<boolean>(false);
+  const [buscaModalLupa, setBuscaModalLupa] = useState<string>('');
+  const [guiasSelecionadasNoModalLupa, setGuiasSelecionadasNoModalLupa] = useState<
+    string[]
+  >([]);
 
   const valorTotalCalculado = guias.reduce((acc, g) => acc + g.valor, 0);
-  const gruposAtendimentos = agruparGuiasPorAtendimento(guias);
+  const faturasEmitidasPorSenha = agruparGuiasPorSenhaAutorizacao(guias);
+  const qtdFaturasLote = faturasEmitidasPorSenha.length;
+  const mudancaStatusNaoSalva = status !== statusSalvo;
 
-  const permiteAlocarMaisGuias = status === 'Aberto' && !bloqueadoPorEnviada;
+  // Só é permitido incluir novas guias no lote quando estiver com o status "Aberto"
+  const bloqueadoParaEdicaoGuias =
+    statusSalvo !== 'Aberto' || status !== 'Aberto';
+  const permiteIncluirNovasGuias =
+    statusSalvo === 'Aberto' && status === 'Aberto';
+  const permiteRemoverGuias =
+    statusSalvo === 'Aberto' && status === 'Aberto';
 
-  const atendimentosDaOperadora = atendimentos.filter(
-    (a) =>
-      a.operadora === operadoraSelecionada &&
-      (a.status === 'Confirmado' || a.status === 'Realizado')
-  );
+  // Conjunto de Nº de Guia (G-nº) já alocados em OUTROS lotes
+  const guiasAlocadasEmOutrosLotes = new Map<string, string>();
+  demandas.forEach((lote) => {
+    if (loteInicial && lote.id === loteInicial.id) return;
+    lote.guias.forEach((g) => {
+      guiasAlocadasEmOutrosLotes.set(g.id.toUpperCase(), lote.id);
+    });
+  });
+
+  // Gera códigos únicos FAT-nº para cada guia/senha quando o lote é fechado/faturado
+  function atribuirCodigosFaturaUnicos(listaGuias: GuiaLote[]): GuiaLote[] {
+    const faturasUsadas = new Set<string>();
+    demandas.forEach((lote) => {
+      if (loteInicial && lote.id === loteInicial.id) return;
+      lote.guias.forEach((g) => {
+        if (g.faturaId) faturasUsadas.add(g.faturaId.toUpperCase());
+      });
+    });
+    listaGuias.forEach((g) => {
+      if (g.faturaId) faturasUsadas.add(g.faturaId.toUpperCase());
+    });
+
+    const mapaSenhaParaFatura = new Map<string, string>();
+    let proximoNumeroFatura = 101;
+
+    return listaGuias.map((g) => {
+      const chaveGrupo = `${g.pacienteId || g.pacienteNome}-${g.senhaAutorizacao || g.id}`;
+      let fatId = g.faturaId || mapaSenhaParaFatura.get(chaveGrupo);
+      if (!fatId) {
+        while (faturasUsadas.has(`FAT-${proximoNumeroFatura}`)) {
+          proximoNumeroFatura++;
+        }
+        fatId = `FAT-${proximoNumeroFatura}`;
+        faturasUsadas.add(fatId);
+      }
+      mapaSenhaParaFatura.set(chaveGrupo, fatId);
+      return {
+        ...g,
+        faturaId: fatId
+      };
+    });
+  }
+
+  // Construir catálogo de todas as guias realizadas (G-nº) disponíveis para esta operadora
+  // Usa extrairGuiasDaConsulta para que consultas com 2+ senhas de autorização exponham todas as suas guias G-nº!
+  const catalogoGuiasRealizadas: GuiaCandidataDisponivel[] = [];
+
+  atendimentos
+    .filter(
+      (a) =>
+        a.status === 'Realizado' &&
+        a.operadora === operadoraSelecionada &&
+        a.operadora !== 'Particular' &&
+        !a.guiaCancelada
+    )
+    .forEach((atd) => {
+      const tipoInferido: TipoAtendimentoLote =
+        atd.tipoAtendimento ||
+        (atd.descricao.toLocaleLowerCase().includes('consulta')
+          ? 'Consulta'
+          : atd.descricao.toLocaleLowerCase().includes('interna')
+            ? 'Internação'
+            : atd.descricao.toLocaleLowerCase().includes('quimioterapia') ||
+              atd.descricao.toLocaleLowerCase().includes('imuno') ||
+              atd.especialidade.toLocaleLowerCase().includes('onco')
+              ? 'Oncologia / Terapia'
+              : 'SADT / Exames');
+
+      const guiasDaConsulta = extrairGuiasDaConsulta(atd);
+      guiasDaConsulta.forEach((gd) => {
+        catalogoGuiasRealizadas.push({
+          numeroGuia: gd.numeroGuia,
+          atendimentoId: atd.id,
+          senhaAutorizacao:
+            gd.senhaAutorizacao || `AUTH-${atd.id.replace(/\D/g, '')}01`,
+          tipoAtendimento: tipoInferido,
+          codigoTuss: gd.codigoTussPrincipal || '10101012',
+          pacienteId: atd.pacienteId,
+          pacienteNome: atd.pacienteNome,
+          medicoNome: atd.medicoNome,
+          procedimento: gd.descricao,
+          procedimentos: gd.procedimentos,
+          data: atd.data,
+          operadora: atd.operadora,
+          valor: gd.valorTotal
+        });
+      });
+    });
+
+  guiasExtrasCriadas
+    .filter((ge) => {
+      const atdPai = atendimentos.find((a) => a.id === ge.atendimentoId);
+      return !atdPai || atdPai.operadora === operadoraSelecionada;
+    })
+    .forEach((ge) => {
+      if (
+        !catalogoGuiasRealizadas.some(
+          (c) => c.numeroGuia.toUpperCase() === ge.id.toUpperCase()
+        )
+      ) {
+        const senhaGe =
+          ge.senhaAutorizacao || `AUTH-${ge.id.replace(/\D/g, '')}`;
+        catalogoGuiasRealizadas.push({
+          numeroGuia: ge.id,
+          atendimentoId: ge.atendimentoId || 'CONS-REALIZADA',
+          senhaAutorizacao: senhaGe,
+          tipoAtendimento: ge.tipoAtendimento || tipoAtendimento,
+          codigoTuss: ge.codigoTuss || '10101012',
+          pacienteId: ge.pacienteId || 'PAC-REALIZADO',
+          pacienteNome: ge.pacienteNome,
+          medicoNome: ge.medicoNome,
+          procedimento: ge.procedimento,
+          procedimentos: ge.procedimentos?.map((p) => ({
+            ...p,
+            senhaAutorizacao: p.senhaAutorizacao || senhaGe,
+            numeroGuia: ge.id
+          })),
+          data: ge.data,
+          operadora: operadoraSelecionada,
+          valor: ge.valor
+        });
+      }
+    });
+
+  const guiasRealizadasCompativeis = catalogoGuiasRealizadas.filter((g) => {
+    if (tipoAtendimento === 'Misto') return true;
+    return g.tipoAtendimento === tipoAtendimento || true;
+  });
 
   function gerarCarimboDataHora(): { iso: string; formatado: string } {
     const agora = new Date();
@@ -311,235 +579,410 @@ export function ModalLote({
     return { iso, formatado };
   }
 
-  function registrarEventoNoHistorico(
-    acao: string,
-    detalhe: string,
-    motivo?: string
-  ): HistoricoAlteracaoLote[] {
-    const { formatado } = gerarCarimboDataHora();
-    const novoItem: HistoricoAlteracaoLote = {
-      id: `HL-${Date.now()}-${Math.floor(Math.random() * 100)}`,
-      dataHora: formatado,
-      acao,
-      detalhe,
-      motivo
-    };
-    const novaLista = [novoItem, ...historicoLote];
-    setHistoricoLote(novaLista);
-    return novaLista;
-  }
-
-  function importarAtendimentoComoGuia() {
-    if (!atendimentoParaImportarId || !permiteAlocarMaisGuias) return;
-    const atd = atendimentos.find((a) => a.id === atendimentoParaImportarId);
-    if (!atd) return;
-
-    const novaGuia: GuiaLote = {
-      id: `GUIA-${Math.floor(100 + Math.random() * 900)}`,
-      atendimentoId: atd.id,
-      codigoTuss: atd.codigoTuss || '10101012',
-      pacienteNome: atd.pacienteNome,
-      medicoNome: atd.medicoNome,
-      procedimento: atd.descricao,
-      data: atd.data,
-      valor: atd.valor
-    };
-
-    setGuias((ant) => [...ant, novaGuia]);
-    registrarEventoNoHistorico(
-      'Alocação de Guia de Atendimento',
-      `Guia ${novaGuia.id} (Atendimento ${atd.id} — ${atd.pacienteNome}) alocada ao lote.`
-    );
-    setAtendimentoParaImportarId('');
-  }
-
-  function adicionarGuiaManualNoLote() {
-    if (!permiteAlocarMaisGuias) return;
-    const valNum = parseFloat(guiaValor);
-    if (
-      !guiaPaciente.trim() ||
-      !guiaProcedimento.trim() ||
-      isNaN(valNum) ||
-      valNum <= 0
-    ) {
+  function incluirGuiaPeloNumeroInput() {
+    if (!permiteIncluirNovasGuias) {
       alert(
-        'Informe Paciente, Procedimento e um Valor válido para alocar a guia ao lote!'
+        'Só é permitido incluir novas guias quando o lote estiver salvo com o status "Aberto"!'
+      );
+      return;
+    }
+    const codigoDigitado = numeroGuiaInput.trim().toUpperCase();
+    if (!codigoDigitado) {
+      alert(
+        'Digite o código da guia (ex: G-210) ou clique na lupa para pesquisar!'
+      );
+      return;
+    }
+
+    if (guias.some((g) => g.id.toUpperCase() === codigoDigitado)) {
+      alert(
+        `A guia ${codigoDigitado} já está incluída neste lote! (G-nº é chave primária única)`
+      );
+      return;
+    }
+
+    const loteConflito = guiasAlocadasEmOutrosLotes.get(codigoDigitado);
+    if (loteConflito) {
+      alert(
+        `A guia ${codigoDigitado} já pertence ao lote ${loteConflito}. O código G-nº é chave primária e não pode se repetir em outro lote!`
+      );
+      return;
+    }
+
+    // Permite buscar por G-nº ou CONS-nº (adicionando a primeira guia livre daquela consulta)
+    const candidata = catalogoGuiasRealizadas.find(
+      (c) =>
+        (c.numeroGuia.toUpperCase() === codigoDigitado ||
+          c.atendimentoId.toUpperCase() === codigoDigitado) &&
+        !guias.some((g) => g.id.toUpperCase() === c.numeroGuia.toUpperCase())
+    );
+
+    if (!candidata) {
+      alert(
+        `Nenhuma guia realizada livre encontrada com o código "${codigoDigitado}" para a operadora ${operadoraSelecionada}. Use o botão da lupa para selecionar da lista de guias realizadas!`
+      );
+      return;
+    }
+
+    const loteConflitoPorGuiaReal = guiasAlocadasEmOutrosLotes.get(
+      candidata.numeroGuia.toUpperCase()
+    );
+    if (loteConflitoPorGuiaReal) {
+      alert(
+        `A guia ${candidata.numeroGuia} já pertence ao lote ${loteConflitoPorGuiaReal}!`
       );
       return;
     }
 
     const novaGuia: GuiaLote = {
-      id: `GUIA-${Math.floor(100 + Math.random() * 900)}`,
-      codigoTuss: guiaCodigoTuss.trim() || '10101012',
-      pacienteNome: guiaPaciente.trim(),
-      medicoNome: guiaMedico.trim() || 'Corpo Clínico',
-      procedimento: guiaProcedimento.trim(),
-      data: guiaData || hojeISO,
-      valor: valNum
+      id: candidata.numeroGuia,
+      atendimentoId: candidata.atendimentoId,
+      senhaAutorizacao: candidata.senhaAutorizacao,
+      tipoAtendimento: candidata.tipoAtendimento,
+      codigoTuss: candidata.codigoTuss,
+      pacienteId: candidata.pacienteId,
+      pacienteNome: candidata.pacienteNome,
+      medicoNome: candidata.medicoNome,
+      procedimento: candidata.procedimento,
+      procedimentos: candidata.procedimentos,
+      data: candidata.data,
+      valor: candidata.valor,
+      statusGuia: 'Realizado'
     };
 
     setGuias((ant) => [...ant, novaGuia]);
-    registrarEventoNoHistorico(
-      'Alocação Manual de Guia',
-      `Guia ${novaGuia.id} (${novaGuia.pacienteNome} — ${formatarMoeda(valNum)}) incluída no lote.`
+    setNumeroGuiaInput('');
+  }
+
+  function abrirModalSelecaoLupa() {
+    if (!permiteIncluirNovasGuias) {
+      alert(
+        'Só é permitido incluir novas guias quando o lote estiver salvo com o status "Aberto"!'
+      );
+      return;
+    }
+    setGuiasSelecionadasNoModalLupa([]);
+    setBuscaModalLupa('');
+    setAbaSubModalLupa('catalogo');
+    setModalLupaGuiasAberto(true);
+  }
+
+  function alternarGuiaNoModalLupa(numeroGuia: string) {
+    const loteConflito = guiasAlocadasEmOutrosLotes.get(
+      numeroGuia.toUpperCase()
     );
-    setGuiaPaciente('');
-    setGuiaMedico('');
-    setGuiaProcedimento('');
-    setGuiaValor('');
+    if (loteConflito) return;
+
+    setGuiasSelecionadasNoModalLupa((ant) => {
+      if (ant.includes(numeroGuia)) {
+        return ant.filter((id) => id !== numeroGuia);
+      }
+      return [...ant, numeroGuia];
+    });
+  }
+
+  function confirmarSelecaoModalLupa() {
+    if (guiasSelecionadasNoModalLupa.length === 0) {
+      setModalLupaGuiasAberto(false);
+      return;
+    }
+
+    const novasGuias: GuiaLote[] = [...guias];
+
+    guiasSelecionadasNoModalLupa.forEach((numGuia) => {
+      if (!novasGuias.some((g) => g.id === numGuia)) {
+        const cand = catalogoGuiasRealizadas.find(
+          (c) => c.numeroGuia === numGuia
+        );
+        if (cand) {
+          novasGuias.push({
+            id: cand.numeroGuia,
+            atendimentoId: cand.atendimentoId,
+            senhaAutorizacao: cand.senhaAutorizacao,
+            tipoAtendimento: cand.tipoAtendimento,
+            codigoTuss: cand.codigoTuss,
+            pacienteId: cand.pacienteId,
+            pacienteNome: cand.pacienteNome,
+            medicoNome: cand.medicoNome,
+            procedimento: cand.procedimento,
+            procedimentos: cand.procedimentos,
+            data: cand.data,
+            valor: cand.valor,
+            statusGuia: 'Realizado'
+          });
+        }
+      }
+    });
+
+    setGuias(novasGuias);
+    setModalLupaGuiasAberto(false);
   }
 
   function removerGuiaDoLote(idGuia: string) {
-    if (!permiteAlocarMaisGuias) return;
-    const guiaAlvo = guias.find((g) => g.id === idGuia);
+    if (!permiteRemoverGuias) return;
     setGuias((ant) => ant.filter((g) => g.id !== idGuia));
-    if (guiaAlvo) {
-      registrarEventoNoHistorico(
-        'Remoção de Guia do Lote',
-        `Guia ${guiaAlvo.id} (${guiaAlvo.pacienteNome}) removida do lote.`
-      );
-    }
   }
 
-  function faturarAtendimentosDoLote() {
+  function acaoFaturarGuiasDoLote() {
     if (guias.length === 0) {
-      alert('Aloque ao menos 1 guia no lote antes de emitir as faturas em PDF!');
+      alert('Selecione ao menos 1 guia realizada antes de faturar o lote!');
       return;
     }
-
-    const { iso, formatado } = gerarCarimboDataHora();
-    const novoHistorico = registrarEventoNoHistorico(
-      'Emissão de Faturas do Lote (PDF)',
-      `Faturas geradas para ${gruposAtendimentos.length} atendimento(s) (${guias.length} guia(s)). Status alterado para Faturada.`
-    );
-
-    setStatus('Faturada');
+    const { formatado } = gerarCarimboDataHora();
+    setGuias((ant) => atribuirCodigosFaturaUnicos(ant));
+    setStatus('Fechado');
     setFaturasEmitidasEm(formatado);
-    setExibindoCaixaExcluirFatura(false);
-
-    gerarEImprimirFaturasLotePDF({
-      id: loteInicial?.id || codigo,
-      operadora: operadoraSelecionada,
-      descricao: descricao.trim() || `Lote ${operadoraSelecionada}`,
-      tipoAtendimento,
-      dataCriacao,
-      guias
-    });
-
-    aoSalvar({
-      id: loteInicial?.id,
-      codigoCustomizado: codigo.trim() || undefined,
-      operadora: operadoraSelecionada,
-      descricao: descricao.trim() || `Lote ${operadoraSelecionada}`,
-      tipoAtendimento,
-      dataCriacao: dataCriacao || hojeISO,
-      dataAlteracaoOuEnvio: iso,
-      valor: valorTotalCalculado,
-      status: 'Faturada',
-      prioridade,
-      guias,
-      observacoes: observacoes.trim(),
-      historicoLote: novoHistorico,
-      faturasEmitidasEm: formatado,
-      motivoUltimaExclusaoFatura
-    });
   }
 
-  function confirmarExclusaoFaturasEmitidas() {
-    const motivoLimpo = justificativaExclusaoFatura.trim();
-    if (!motivoLimpo) {
+  function acaoAbrirLote() {
+    setStatus('Aberto');
+  }
+
+  function acaoColocarLotePendente() {
+    setStatus('Pendente');
+  }
+
+  function acaoConfirmarEnvioComCodigoOperadora() {
+    const protocoloLimpo = inputCodigoOperadora.trim();
+    if (!protocoloLimpo) {
       alert(
-        'É obrigatório justificar o motivo pelo qual está excluindo as faturas emitidas deste lote!'
+        'Digite o código/protocolo informado pela operadora para preparar o envio!'
       );
       return;
     }
+    setCodigoEnvioOperadora(protocoloLimpo);
+    setStatus('Enviado');
+    setInputCodigoOperadora('');
+  }
 
-    const { iso } = gerarCarimboDataHora();
-    const novoHistorico = registrarEventoNoHistorico(
-      'Exclusão de Faturas Emitidas',
-      'Faturas do lote foram excluídas e o status retornou para Aberto para correção.',
-      motivoLimpo
-    );
+  function acaoGlosarLote() {
+    setStatus('Glosado');
+  }
 
-    setStatus('Aberto');
-    setFaturasEmitidasEm(undefined);
-    setMotivoUltimaExclusaoFatura(motivoLimpo);
-    setExibindoCaixaExcluirFatura(false);
-    setJustificativaExclusaoFatura('');
-
-    aoSalvar({
-      id: loteInicial?.id,
-      codigoCustomizado: codigo.trim() || undefined,
-      operadora: operadoraSelecionada,
-      descricao: descricao.trim(),
-      tipoAtendimento,
-      dataCriacao: dataCriacao || hojeISO,
-      dataAlteracaoOuEnvio: iso,
-      valor: valorTotalCalculado,
-      status: 'Aberto',
-      prioridade,
-      guias,
-      observacoes: observacoes.trim(),
-      historicoLote: novoHistorico,
-      faturasEmitidasEm: undefined,
-      motivoUltimaExclusaoFatura: motivoLimpo
-    });
+  function acaoReenviarLoteGlosado() {
+    const protocoloReenvio =
+      inputCodigoReenvio.trim() || `REENV-${codigoEnvioOperadora || codigo}`;
+    setCodigoReenvioOperadora(protocoloReenvio);
+    setStatus('Reenviado');
+    setInputCodigoReenvio('');
   }
 
   function submeterFormulario(evento: FormEvent) {
     evento.preventDefault();
-    if (bloqueadoPorEnviada) return;
 
-    if (!operadoraSelecionada || !descricao.trim()) {
-      alert('Preencha a Operadora e a Descrição do Lote!');
+    if (!operadoraSelecionada) {
+      alert('Selecione a Operadora do lote!');
       return;
     }
 
     if (guias.length === 0) {
       alert(
-        'O lote precisa conter pelo menos 1 guia de atendimento para calcular o valor total!'
+        'O lote precisa conter pelo menos 1 guia realizada (G-nº) para calcular o valor total!'
       );
       return;
     }
 
     const { iso, formatado } = gerarCarimboDataHora();
-    const acaoPrincipal = modoEdicao
-      ? `Atualização Cadastral do Lote (Status: ${status})`
-      : `Criação do Lote (${operadoraSelecionada} — ${tipoAtendimento})`;
-    const detalhePrincipal = `Lote salvo com ${guias.length} guia(s) em ${gruposAtendimentos.length} atendimento(s), totalizando ${formatarMoeda(valorTotalCalculado)}.`;
+    const descricaoAutomatica =
+      loteInicial?.descricao || `Lote ${operadoraSelecionada} — ${tipoAtendimento}`;
+
+    const loteFaturadoOuEnviado =
+      status === 'Fechado' ||
+      status === 'Enviado' ||
+      status === 'Glosado' ||
+      status === 'Reenviado';
+
+    const guiasFinaisParaSalvar: GuiaLote[] = loteFaturadoOuEnviado
+      ? atribuirCodigosFaturaUnicos(guias)
+      : guias.map((g) => ({ ...g, faturaId: undefined }));
+
+    const novosEventosHistorico: HistoricoAlteracaoLote[] = [];
+
+    if (!modoEdicao) {
+      novosEventosHistorico.push({
+        id: `HL-${Date.now()}-CRIACAO`,
+        dataHora: formatado,
+        acao: `Criação do Lote (${operadoraSelecionada} — ${tipoAtendimento})`,
+        detalhe: `Data/Hora: ${formatado} | Campos iniciais: Operadora="${operadoraSelecionada}", Tipo="${tipoAtendimento}", Status="${status}", Prioridade="${prioridade}", Guias=[${guiasFinaisParaSalvar.map((g) => `${g.id} (Consulta ${g.atendimentoId || '-'} / Senha ${g.senhaAutorizacao || 'N/A'})`).join(', ')}], Valor Total=${formatarMoeda(valorTotalCalculado)}${observacoes.trim() ? `, Observações="${observacoes.trim()}"` : ''}.`
+      });
+    } else {
+      const alteracoesCampos: string[] = [];
+
+      if (status !== snapshotSalvo.status) {
+        alteracoesCampos.push(
+          `Status: "${snapshotSalvo.status}" → "${status}"`
+        );
+      }
+
+      if (prioridade !== snapshotSalvo.prioridade) {
+        alteracoesCampos.push(
+          `Prioridade: "${snapshotSalvo.prioridade}" → "${prioridade}"`
+        );
+      }
+
+      if (
+        (codigoEnvioOperadora || '') !==
+        (snapshotSalvo.codigoEnvioOperadora || '')
+      ) {
+        alteracoesCampos.push(
+          `Protocolo de Envio à Operadora: "${snapshotSalvo.codigoEnvioOperadora || 'Vazio'}" → "${codigoEnvioOperadora || 'Vazio'}"`
+        );
+      }
+
+      if (
+        (codigoReenvioOperadora || '') !==
+        (snapshotSalvo.codigoReenvioOperadora || '')
+      ) {
+        alteracoesCampos.push(
+          `Protocolo de Reenvio: "${snapshotSalvo.codigoReenvioOperadora || 'Vazio'}" → "${codigoReenvioOperadora || 'Vazio'}"`
+        );
+      }
+
+      if (observacoes.trim() !== (snapshotSalvo.observacoes || '').trim()) {
+        alteracoesCampos.push(
+          `Observações: "${(snapshotSalvo.observacoes || '').trim() || 'Vazio'}" → "${observacoes.trim() || 'Vazio'}"`
+        );
+      }
+
+      const idsAntigos = new Set(snapshotSalvo.guias.map((g) => g.id));
+      const idsNovos = new Set(guiasFinaisParaSalvar.map((g) => g.id));
+
+      const guiasIncluidas = guiasFinaisParaSalvar.filter(
+        (g) => !idsAntigos.has(g.id)
+      );
+      const guiasRemovidas = snapshotSalvo.guias.filter(
+        (g) => !idsNovos.has(g.id)
+      );
+
+      if (guiasIncluidas.length > 0) {
+        alteracoesCampos.push(
+          `Guias Incluídas: ${guiasIncluidas.map((g) => `${g.id} (${g.pacienteNome} — Senha ${g.senhaAutorizacao || 'N/A'} — ${formatarMoeda(g.valor)})`).join('; ')}`
+        );
+      }
+
+      if (guiasRemovidas.length > 0) {
+        alteracoesCampos.push(
+          `Guias Removidas: ${guiasRemovidas.map((g) => `${g.id} (${g.pacienteNome} — ${formatarMoeda(g.valor)})`).join('; ')}`
+        );
+      }
+
+      const valorAntigo = snapshotSalvo.guias.reduce(
+        (acc, g) => acc + g.valor,
+        0
+      );
+      if (Math.abs(valorAntigo - valorTotalCalculado) > 0.009) {
+        alteracoesCampos.push(
+          `Valor Total do Lote: ${formatarMoeda(valorAntigo)} → ${formatarMoeda(valorTotalCalculado)}`
+        );
+      }
+
+      if (alteracoesCampos.length > 0) {
+        const tituloAcao =
+          status !== snapshotSalvo.status
+            ? `Alteração Salva (Status: ${snapshotSalvo.status} → ${status})`
+            : 'Alteração de Dados/Guias Salva no Lote';
+
+        novosEventosHistorico.push({
+          id: `HL-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          dataHora: formatado,
+          acao: tituloAcao,
+          detalhe: `${formatado} — Campos e valores alterados: ${alteracoesCampos.join(' | ')}`
+        });
+      }
+    }
 
     const historicoFinal: HistoricoAlteracaoLote[] = [
-      {
-        id: `HL-${Date.now()}`,
-        dataHora: formatado,
-        acao: acaoPrincipal,
-        detalhe: detalhePrincipal
-      },
+      ...novosEventosHistorico,
       ...historicoLote
     ];
+
+    const faturasEmFinal = loteFaturadoOuEnviado
+      ? faturasEmitidasEm || formatado
+      : undefined;
+
+    const codigoEnvioFinal =
+      status === 'Aberto' ? undefined : codigoEnvioOperadora || undefined;
+
+    setGuias(guiasFinaisParaSalvar);
+    setHistoricoLote(historicoFinal);
+    setStatusSalvo(status);
+    setFaturasEmitidasEm(faturasEmFinal);
+    if (status === 'Aberto') {
+      setCodigoEnvioOperadora('');
+    }
+    setSnapshotSalvo({
+      operadora: operadoraSelecionada,
+      tipoAtendimento,
+      status,
+      prioridade,
+      observacoes: observacoes.trim(),
+      codigoEnvioOperadora: codigoEnvioFinal ?? '',
+      codigoReenvioOperadora,
+      guias: [...guiasFinaisParaSalvar]
+    });
+
+    // Se acabou de mudar para Fechado ao salvar, imprime o PDF das faturas FAT-nº
+    if (status === 'Fechado' && snapshotSalvo.status !== 'Fechado') {
+      gerarEImprimirFaturasLotePDF({
+        id: loteInicial?.id || codigo,
+        operadora: operadoraSelecionada,
+        descricao: descricaoAutomatica,
+        tipoAtendimento,
+        dataCriacao,
+        guias: guiasFinaisParaSalvar,
+        codigoEnvioOperadora: codigoEnvioFinal
+      });
+    }
 
     aoSalvar({
       id: loteInicial?.id,
       codigoCustomizado: codigo.trim() || undefined,
       operadora: operadoraSelecionada,
-      descricao: descricao.trim(),
+      descricao: descricaoAutomatica,
       tipoAtendimento,
       dataCriacao: dataCriacao || hojeISO,
+      horaCriacao,
       dataAlteracaoOuEnvio: iso,
       valor: valorTotalCalculado,
       status,
       prioridade,
-      guias,
+      guias: guiasFinaisParaSalvar,
+      codigoEnvioOperadora: codigoEnvioFinal,
+      codigoReenvioOperadora: codigoReenvioOperadora || undefined,
       observacoes: observacoes.trim(),
       historicoLote: historicoFinal,
-      faturasEmitidasEm:
-        status === 'Faturada' || status === 'Enviada'
-          ? faturasEmitidasEm || formatado
-          : undefined,
+      faturasEmitidasEm: faturasEmFinal,
       motivoUltimaExclusaoFatura
     });
-    aoFechar();
+
+    if (!modoEdicao) {
+      aoFechar();
+    }
   }
+
+  // Filtragem de guias dentro do sub-modal da lupa:
+  // O mesmo paciente/consulta (CONS-nº) PODE ter múltiplas guias (G-nº) com senhas diferentes no mesmo lote!
+  // Apenas filtramos guias cujo G-nº exato já está neste lote.
+  const guiasFiltradasNaLupa = guiasRealizadasCompativeis.filter((cand) => {
+    const guiaJaEstaNoLote = guias.some(
+      (g) => g.id.toUpperCase() === cand.numeroGuia.toUpperCase()
+    );
+    if (guiaJaEstaNoLote) return false;
+
+    const termo = buscaModalLupa.toLocaleLowerCase();
+    return (
+      cand.numeroGuia.toLocaleLowerCase().includes(termo) ||
+      cand.atendimentoId.toLocaleLowerCase().includes(termo) ||
+      cand.pacienteId.toLocaleLowerCase().includes(termo) ||
+      cand.pacienteNome.toLocaleLowerCase().includes(termo) ||
+      cand.procedimento.toLocaleLowerCase().includes(termo) ||
+      cand.senhaAutorizacao.toLocaleLowerCase().includes(termo)
+    );
+  });
+
+  const guiasEscolhidasPreviewNaLupa = catalogoGuiasRealizadas.filter((c) =>
+    guiasSelecionadasNoModalLupa.includes(c.numeroGuia)
+  );
 
   return (
     <div className="modal-overlay" onClick={aoFechar}>
@@ -551,8 +994,8 @@ export function ModalLote({
           <div>
             <h3 style={{ fontSize: '1.25rem' }}>
               {modoEdicao
-                ? `Gestão do Lote de Convênio (${loteInicial?.id})`
-                : 'Novo Lote de Convênio (+ Lote)'}
+                ? `Gestão do Lote de Operadora (${loteInicial?.id})`
+                : 'Novo Lote de Operadora (+ Lote LOTE-nº)'}
             </h3>
             <p
               style={{
@@ -562,20 +1005,57 @@ export function ModalLote({
               }}
             >
               {modoEdicao && loteInicial
-                ? `Criado em ${formatarDataBR(loteInicial.dataCriacao)} • Última alteração automática: ${formatarUltimaAtualizacao(loteInicial.dataAlteracaoOuEnvio || loteInicial.atualizadoHa)}`
-                : 'Defina Operadora e Tipo de Tratamento na criação (bloqueados para troca futura).'}
+                ? `Criado em ${formatarDataBR(loteInicial.dataCriacao)} • Última alteração: ${formatarUltimaAtualizacao(loteInicial.dataAlteracaoOuEnvio || loteInicial.atualizadoHa)}`
+                : 'Selecione guias de consultas realizadas usando o código G-nº (PK) ou a lupa de pesquisa.'}
             </p>
           </div>
           <button
             type="button"
-            className="btn-realtime"
+            className="btn-icon-square"
             onClick={aoFechar}
-            style={{ padding: '0.3rem 0.5rem' }}
+            title="Fechar janela"
           >
             <X size={18} />
           </button>
         </div>
 
+        <div className="lote-summary-strip">
+          <div>
+            <span className="strip-label">Código do Lote</span>
+            <strong style={{ color: '#778873' }}>{codigo}</strong>
+          </div>
+          <div>
+            <span className="strip-label">
+              Operadora {modoEdicao ? '(Fixa)' : ''}
+            </span>
+            <strong>{operadoraSelecionada}</strong>
+          </div>
+          <div>
+            <span className="strip-label">
+              Modalidade {modoEdicao ? '(Fixa)' : ''}
+            </span>
+            <strong>{tipoAtendimento}</strong>
+          </div>
+          <div>
+            <span className="strip-label">Guias / Faturas</span>
+            <strong>
+              {guias.length} guia(s) • {qtdFaturasLote}{' '}
+              {qtdFaturasLote === 1 ? 'Fatura' : 'Faturas'}
+            </strong>
+          </div>
+          <div>
+            <span className="strip-label">Status do Lote</span>
+            <span className={obterClasseBadge(status)}>{status}</span>
+          </div>
+          <div>
+            <span className="strip-label">Valor Líquido do Lote</span>
+            <strong style={{ fontSize: '1.05rem', color: 'var(--accent-color)' }}>
+              {formatarMoeda(valorTotalCalculado)}
+            </strong>
+          </div>
+        </div>
+
+        {/* Menu de abas posicionado abaixo do sumário */}
         <div className="modal-abas">
           <button
             type="button"
@@ -593,8 +1073,8 @@ export function ModalLote({
           >
             <CalendarCheck size={15} />
             <span>
-              Atendimentos Vinculados ({gruposAtendimentos.length} atd. /{' '}
-              {guias.length} guias)
+              Guias do Lote ({guias.length} guia(s) / {qtdFaturasLote}{' '}
+              {qtdFaturasLote === 1 ? 'Fatura' : 'Faturas'})
             </span>
           </button>
 
@@ -608,93 +1088,11 @@ export function ModalLote({
           </button>
         </div>
 
-        {bloqueadoPorEnviada && loteInicial && (
-          <div className="alert-box alert-enviado">
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                fontWeight: 600
-              }}
-            >
-              <Lock size={16} />
-              <span>Lote com status "Enviada" — Enviado para a Operadora</span>
-            </div>
-            <p style={{ fontSize: '0.84rem', marginTop: '0.25rem' }}>
-              Lotes já enviados ao convênio para pagamento não podem ser editados
-              diretamente. Caso exista alguma divergência, registre um{' '}
-              <strong>Recurso</strong> abaixo.
-            </p>
-            {loteInicial.recurso && (
-              <div className="recurso-info-card">
-                <strong>
-                  Recurso Registrado ({loteInicial.recurso.dataAbertura}):
-                </strong>
-                <p>{loteInicial.recurso.motivo}</p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {!bloqueadoPorEnviada && loteInicial?.recurso && (
-          <div className="alert-box alert-recurso">
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                fontWeight: 600
-              }}
-            >
-              <AlertCircle size={16} />
-              <span>
-                Histórico de Recurso ({loteInicial.recurso.dataAbertura})
-              </span>
-            </div>
-            <p style={{ fontSize: '0.84rem', marginTop: '0.2rem' }}>
-              {loteInicial.recurso.motivo}
-            </p>
-          </div>
-        )}
-
-        <div className="lote-summary-strip">
-          <div>
-            <span className="strip-label">Código do Lote</span>
-            <strong style={{ color: '#778873' }}>{codigo}</strong>
-          </div>
-          <div>
-            <span className="strip-label">Operadora {modoEdicao ? '(Fixa)' : ''}</span>
-            <strong>{operadoraSelecionada}</strong>
-          </div>
-          <div>
-            <span className="strip-label">
-              Tipo de Tratamento {modoEdicao ? '(Fixo)' : ''}
-            </span>
-            <strong>{tipoAtendimento}</strong>
-          </div>
-          <div>
-            <span className="strip-label">Atendimentos / Guias</span>
-            <strong>
-              {gruposAtendimentos.length} atd. ({guias.length} guias)
-            </strong>
-          </div>
-          <div>
-            <span className="strip-label">Status do Lote</span>
-            <span className={obterClasseBadge(status)}>{status}</span>
-          </div>
-          <div>
-            <span className="strip-label">Valor Total (Soma Guias)</span>
-            <strong style={{ fontSize: '1.05rem', color: 'var(--accent-color)' }}>
-              {formatarMoeda(valorTotalCalculado)}
-            </strong>
-          </div>
-        </div>
-
         <form
           onSubmit={submeterFormulario}
-          style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}
+          style={{ display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1 }}
         >
+
           {abaAtiva === 'dados' && (
             <>
               <div
@@ -705,26 +1103,29 @@ export function ModalLote({
                 }}
               >
                 <div className="form-group">
-                  <label>Código do Lote</label>
+                  <label>Código do Lote (Chave Primária LOTE-nº)</label>
                   <input
                     type="text"
                     className="form-input"
                     value={codigo}
                     onChange={(e) => setCodigo(e.target.value)}
-                    disabled={modoEdicao || bloqueadoPorEnviada}
+                    disabled={modoEdicao || bloqueadoParaEdicaoGuias}
                     required
                   />
                 </div>
 
                 <div className="form-group">
                   <label>
-                    Operadora {modoEdicao ? '(Definida na criação — Sem alteração)' : ''}
+                    Operadora {modoEdicao ? '(Definida na criação)' : ''}
                   </label>
                   <select
                     className="form-input"
                     value={operadoraSelecionada}
-                    onChange={(e) => setOperadoraSelecionada(e.target.value)}
-                    disabled={modoEdicao || bloqueadoPorEnviada}
+                    onChange={(e) => {
+                      setOperadoraSelecionada(e.target.value);
+                      if (!modoEdicao) setGuias([]);
+                    }}
+                    disabled={modoEdicao || bloqueadoParaEdicaoGuias}
                     required
                   >
                     {operadoras.map((op) => (
@@ -732,21 +1133,13 @@ export function ModalLote({
                         {op.nome} ({op.cnpj})
                       </option>
                     ))}
-                    {operadoraSelecionada &&
-                      !operadoras.some(
-                        (op) => op.nome === operadoraSelecionada
-                      ) && (
-                        <option value={operadoraSelecionada}>
-                          {operadoraSelecionada}
-                        </option>
-                      )}
                   </select>
                 </div>
 
                 <div className="form-group">
                   <label>
-                    Tipo de Tratamento{' '}
-                    {modoEdicao ? '(Definido na criação — Sem alteração)' : ''}
+                    Tipo de Consulta / Procedimento{' '}
+                    {modoEdicao ? '(Definido na criação)' : ''}
                   </label>
                   <select
                     className="form-input"
@@ -754,7 +1147,7 @@ export function ModalLote({
                     onChange={(e) =>
                       setTipoAtendimento(e.target.value as TipoAtendimentoLote)
                     }
-                    disabled={modoEdicao || bloqueadoPorEnviada}
+                    disabled={modoEdicao || bloqueadoParaEdicaoGuias}
                   >
                     {TIPOS_ATENDIMENTO_LOTE.map((t) => (
                       <option key={t} value={t}>
@@ -765,35 +1158,22 @@ export function ModalLote({
                 </div>
               </div>
 
-              <div className="form-group">
-                <label>Descrição do Lote</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="Ex: Lote Quimioterapia Ambulatorial #92"
-                  value={descricao}
-                  onChange={(e) => setDescricao(e.target.value)}
-                  disabled={bloqueadoPorEnviada}
-                  required
-                />
-              </div>
-
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: '1fr 1fr 1.2fr',
-                  gap: '0.75rem'
+                  gridTemplateColumns: '1.15fr 0.85fr 2fr',
+                  gap: '0.75rem',
+                  alignItems: 'end'
                 }}
               >
                 <div className="form-group">
-                  <label>Data de Criação</label>
+                  <label>Data e Hora da Criação</label>
                   <input
-                    type="date"
+                    type="text"
                     className="form-input"
-                    value={dataCriacao}
-                    onChange={(e) => setDataCriacao(e.target.value)}
-                    disabled={modoEdicao || bloqueadoPorEnviada}
-                    required
+                    value={`${formatarDataBR(dataCriacao)} às ${horaCriacao}`}
+                    disabled
+                    readOnly
                   />
                 </div>
 
@@ -805,7 +1185,7 @@ export function ModalLote({
                     onChange={(e) =>
                       setPrioridade(e.target.value as PrioridadeDemanda)
                     }
-                    disabled={bloqueadoPorEnviada}
+                    disabled={bloqueadoParaEdicaoGuias}
                   >
                     <option value="Alta">Alta</option>
                     <option value="Média">Média</option>
@@ -814,111 +1194,204 @@ export function ModalLote({
                 </div>
 
                 <div className="form-group">
-                  <label>Status do Lote de Convênio</label>
-                  <select
-                    className="form-input"
-                    value={status}
-                    onChange={(e) =>
-                      setStatus(e.target.value as StatusFaturamento)
-                    }
-                    disabled={bloqueadoPorEnviada}
+                  <label>
+                    Status do Lote e Ações de Transição{' '}
+                    {mudancaStatusNaoSalva ? (
+                      <span
+                        style={{
+                          color: 'var(--accent-color)',
+                          fontWeight: 700,
+                          marginLeft: '0.35rem'
+                        }}
+                      >
+                        (Pendente salvar: {statusSalvo} → {status})
+                      </span>
+                    ) : (
+                      ''
+                    )}
+                  </label>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      flexWrap: 'wrap'
+                    }}
                   >
-                    <option value="Aberto">
-                      Aberto (Alocar guias para faturar em lote)
-                    </option>
-                    <option value="Faturada">
-                      Faturada (Faturas emitidas das guias incluídas)
-                    </option>
-                    <option value="Enviada">
-                      Enviada (Lote enviado ao convênio para pagamento)
-                    </option>
-                  </select>
+                    <input
+                      type="text"
+                      className="form-input"
+                      style={{
+                        width: '145px',
+                        fontWeight: 700,
+                        textAlign: 'center',
+                        backgroundColor: 'var(--bg-primary)'
+                      }}
+                      value={status}
+                      disabled
+                      readOnly
+                    />
+
+                    {status === 'Aberto' && (
+                      <>
+                        <button
+                          type="button"
+                          className="btn-primary"
+                          onClick={acaoFaturarGuiasDoLote}
+                          title="Emitir códigos FAT-nº para cada guia/senha e mudar status para Fechado"
+                        >
+                          <Check size={15} />
+                          <span>Faturar Guias (Gerar FAT-nº)</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-outline"
+                          onClick={acaoColocarLotePendente}
+                          title="Marcar lote como Pendente"
+                        >
+                          <Clock size={15} />
+                          <span>Pendente</span>
+                        </button>
+                      </>
+                    )}
+
+                    {status === 'Pendente' && (
+                      <>
+                        <button
+                          type="button"
+                          className="btn-outline"
+                          onClick={acaoAbrirLote}
+                        >
+                          <FolderOpen size={15} />
+                          <span>Abrir lote</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-primary"
+                          onClick={acaoFaturarGuiasDoLote}
+                        >
+                          <Check size={15} />
+                          <span>Faturar Guias (Gerar FAT-nº)</span>
+                        </button>
+                      </>
+                    )}
+
+                    {status === 'Fechado' && !codigoEnvioOperadora && (
+                      <button
+                        type="button"
+                        className="btn-outline"
+                        onClick={acaoAbrirLote}
+                      >
+                        <FolderOpen size={15} />
+                        <span>Abrir lote</span>
+                      </button>
+                    )}
+
+                    {((status === 'Fechado' && Boolean(codigoEnvioOperadora)) ||
+                      status === 'Enviado' ||
+                      status === 'Reenviado') && (
+                        <button
+                          type="button"
+                          className="btn-recurso"
+                          onClick={acaoGlosarLote}
+                        >
+                          <MessageSquareWarning size={15} />
+                          <span>Glosar lote</span>
+                        </button>
+                      )}
+
+                    {status === 'Glosado' && (
+                      <button
+                        type="button"
+                        className="btn-outline"
+                        onClick={acaoAbrirLote}
+                      >
+                        <FolderOpen size={15} />
+                        <span>Abrir lote</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              {status === 'Aberto' && !bloqueadoPorEnviada && (
-                <div className="guias-lote-box">
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      flexWrap: 'wrap',
-                      gap: '0.75rem'
-                    }}
-                  >
-                    <div>
-                      <strong>
-                        Lote Aberto para Faturamento ({gruposAtendimentos.length}{' '}
-                        atendimento(s) / {guias.length} guia(s))
-                      </strong>
-                      <p
-                        style={{
-                          fontSize: '0.82rem',
-                          color: 'var(--text-secondary)',
-                          marginTop: '0.15rem'
-                        }}
-                      >
-                        Fature os atendimentos incluídos neste lote para gerar o
-                        arquivo PDF com páginas equivalentes às faturas de cada
-                        atendimento (agrupando múltiplas guias do mesmo atendimento
-                        na mesma fatura).
-                      </p>
-                    </div>
-
-                    <button
-                      type="button"
-                      className="btn-primary"
-                      onClick={faturarAtendimentosDoLote}
-                    >
-                      <Printer size={16} />
-                      <span>Faturar Atendimentos do Lote (Gerar PDF)</span>
-                    </button>
-                  </div>
+              {mudancaStatusNaoSalva && (
+                <div
+                  style={{
+                    padding: '0.65rem 0.9rem',
+                    borderRadius: '8px',
+                    backgroundColor: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-color)',
+                    fontSize: '0.84rem',
+                    color: 'var(--text-primary)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: '0.5rem'
+                  }}
+                >
+                  <span>
+                    Mudança de status preparada:{' '}
+                    <strong>
+                      {statusSalvo} → {status}
+                    </strong>
+                    . Clique em <strong>Salvar Alterações do Lote</strong> para
+                    registrar no histórico e efetivar os códigos de fatura (FAT-nº).
+                  </span>
                 </div>
               )}
 
-              {status === 'Faturada' && (
-                <div className="guias-lote-box">
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      flexWrap: 'wrap',
-                      gap: '0.75rem'
-                    }}
-                  >
-                    <div>
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.45rem'
-                        }}
-                      >
-                        <CheckCircle2 size={17} color="#4d6b53" />
-                        <strong>
-                          Faturas Emitidas do Lote ({gruposAtendimentos.length}{' '}
-                          página(s) de fatura por atendimento)
-                        </strong>
+              {/* Box de Faturas Emitidas (FAT-nº) e Código de Envio à Operadora */}
+              {(status === 'Fechado' ||
+                status === 'Enviado' ||
+                status === 'Glosado' ||
+                status === 'Reenviado') && (
+                  <div className="guias-lote-box">
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: '0.75rem'
+                      }}
+                    >
+                      <div>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.45rem',
+                            flexWrap: 'wrap'
+                          }}
+                        >
+                          <CheckCircle2 size={17} color="#4d6b53" />
+                          <strong>
+                            Faturas Emitidas no Lote ({qtdFaturasLote}{' '}
+                            {qtdFaturasLote === 1 ? 'Fatura FAT-nº' : 'Faturas FAT-nº'})
+                          </strong>
+                          {faturasEmitidasPorSenha.map((f) =>
+                            f.faturaId ? (
+                              <span key={f.faturaId} className="badge badge-faturado">
+                                {f.faturaId} (Guia {f.guias.map((g) => g.id).join(', ')} • Senha {f.senhaAutorizacao})
+                              </span>
+                            ) : null
+                          )}
+                        </div>
+                        <p
+                          style={{
+                            fontSize: '0.82rem',
+                            color: 'var(--text-secondary)',
+                            marginTop: '0.2rem'
+                          }}
+                        >
+                          {faturasEmitidasEm
+                            ? `Faturas geradas em ${faturasEmitidasEm}. `
+                            : ''}
+                          Cada Fatura (FAT-nº) corresponde a 1 Guia (G-nº) e 1 Senha de Autorização da operadora.
+                        </p>
                       </div>
-                      <p
-                        style={{
-                          fontSize: '0.82rem',
-                          color: 'var(--text-secondary)',
-                          marginTop: '0.15rem'
-                        }}
-                      >
-                        {faturasEmitidasEm
-                          ? `Faturas geradas em ${faturasEmitidasEm}. `
-                          : ''}
-                        Visualize/imprima o PDF das faturas ou exclua mediante
-                        justificativa obrigatória caso haja algum erro.
-                      </p>
-                    </div>
 
-                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                       <button
                         type="button"
                         className="btn-outline"
@@ -927,98 +1400,250 @@ export function ModalLote({
                             id: loteInicial?.id || codigo,
                             operadora: operadoraSelecionada,
                             descricao:
-                              descricao.trim() || `Lote ${operadoraSelecionada}`,
+                              loteInicial?.descricao ||
+                              `Lote ${operadoraSelecionada} — ${tipoAtendimento}`,
                             tipoAtendimento,
                             dataCriacao,
-                            guias
+                            guias,
+                            codigoEnvioOperadora
                           })
                         }
                       >
                         <Printer size={15} />
                         <span>Visualizar / Imprimir Faturas (PDF)</span>
                       </button>
-
-                      <button
-                        type="button"
-                        className="btn-danger"
-                        style={{ padding: '0.45rem 0.85rem', fontWeight: 600 }}
-                        onClick={() =>
-                          setExibindoCaixaExcluirFatura((ant) => !ant)
-                        }
-                      >
-                        <Trash2 size={15} style={{ marginRight: '0.35rem' }} />
-                        <span>Excluir Faturas</span>
-                      </button>
                     </div>
-                  </div>
 
-                  {exibindoCaixaExcluirFatura && (
-                    <div
-                      style={{
-                        borderTop: '1px solid var(--border-color)',
-                        paddingTop: '0.75rem',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '0.6rem'
-                      }}
-                    >
-                      <label
-                        style={{
-                          fontSize: '0.84rem',
-                          fontWeight: 600,
-                          color: '#dc2626'
-                        }}
-                      >
-                        Justificativa Obrigatória para Exclusão das Faturas Emitidas:
-                      </label>
-                      <textarea
-                        className="form-input"
-                        rows={2}
-                        placeholder="Descreva o erro ou motivo pelo qual está excluindo as faturas deste lote..."
-                        value={justificativaExclusaoFatura}
-                        onChange={(e) =>
-                          setJustificativaExclusaoFatura(e.target.value)
-                        }
-                      />
+                    {status === 'Fechado' && statusSalvo === 'Fechado' && (
                       <div
                         style={{
+                          borderTop: '1px solid var(--border-color)',
+                          paddingTop: '0.85rem',
+                          marginTop: '0.35rem',
                           display: 'flex',
-                          justifyContent: 'flex-end',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          flexWrap: 'wrap',
+                          gap: '0.75rem'
+                        }}
+                      >
+                        <div>
+                          <strong style={{ fontSize: '0.9rem' }}>
+                            Conclusão do Envio à Operadora (Muda para Enviado ao salvar)
+                          </strong>
+                          <p
+                            style={{
+                              fontSize: '0.8rem',
+                              color: 'var(--text-secondary)'
+                            }}
+                          >
+                            Informe o código/protocolo gerado pela operadora após o envio
+                            do lote {codigo}:
+                          </p>
+                        </div>
+
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.5rem',
+                            flexWrap: 'wrap'
+                          }}
+                        >
+                          <input
+                            type="text"
+                            className="form-input"
+                            style={{ width: '240px' }}
+                            placeholder="Código de envio da operadora..."
+                            value={inputCodigoOperadora}
+                            onChange={(e) => setInputCodigoOperadora(e.target.value)}
+                          />
+                          <button
+                            type="button"
+                            className="btn-primary"
+                            onClick={acaoConfirmarEnvioComCodigoOperadora}
+                          >
+                            <Send size={15} />
+                            <span>Confirmar Envio</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {codigoEnvioOperadora && (
+                      <div
+                        style={{
+                          borderTop: '1px solid var(--border-color)',
+                          paddingTop: '0.65rem',
+                          fontSize: '0.85rem',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          flexWrap: 'wrap',
                           gap: '0.5rem'
                         }}
                       >
-                        <button
-                          type="button"
-                          className="btn-realtime"
-                          onClick={() => {
-                            setExibindoCaixaExcluirFatura(false);
-                            setJustificativaExclusaoFatura('');
+                        <span>
+                          Protocolo de Envio à Operadora:{' '}
+                          <strong
+                            style={{
+                              color: 'var(--text-primary)',
+                              backgroundColor: 'var(--bg-primary)',
+                              border: '1px solid var(--border-color)',
+                              padding: '0.15rem 0.5rem',
+                              borderRadius: '6px'
+                            }}
+                          >
+                            {codigoEnvioOperadora}
+                          </strong>
+                        </span>
+                        {(codigoReenvioOperadora ||
+                          loteInicial?.codigoReenvioOperadora) && (
+                            <span>
+                              Protocolo de Reenvio pós-Glosa:{' '}
+                              <strong
+                                style={{
+                                  color: 'var(--text-primary)',
+                                  backgroundColor: 'var(--bg-primary)',
+                                  border: '1px solid var(--border-color)',
+                                  padding: '0.15rem 0.5rem',
+                                  borderRadius: '6px'
+                                }}
+                              >
+                                {codigoReenvioOperadora ||
+                                  loteInicial?.codigoReenvioOperadora}
+                              </strong>
+                            </span>
+                          )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+              {/* Tratamento de Glosa e Reenvio quando status === 'Glosado' */}
+              {status === 'Glosado' && (
+                <div className="alert-box alert-recurso">
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: '0.75rem'
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: '260px' }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.5rem',
+                          fontWeight: 700
+                        }}
+                      >
+                        <AlertCircle size={17} />
+                        <span>
+                          Lote Glosado pela Operadora — Tratamento e Reenvio
+                        </span>
+                      </div>
+                      <p style={{ fontSize: '0.83rem', marginTop: '0.2rem' }}>
+                        {loteInicial?.recurso
+                          ? `[${loteInicial.recurso.tipoGlosa || 'Glosa'}] ${loteInicial.recurso.motivo}`
+                          : statusSalvo !== 'Glosado'
+                            ? 'Clique em "Salvar Alterações do Lote" para efetivar o status Glosado e liberar o tratamento/reenvio.'
+                            : 'Realize os ajustes necessários nas guias/procedimentos ou registre a justificativa de recurso e confirme o reenvio.'}
+                      </p>
+                      <div
+                        style={{
+                          marginTop: '0.5rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.5rem',
+                          flexWrap: 'wrap'
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: '0.82rem',
+                            fontWeight: 600,
+                            color: 'var(--text-primary)'
                           }}
                         >
-                          Cancelar
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-recurso"
-                          onClick={confirmarExclusaoFaturasEmitidas}
-                        >
-                          Confirmar Exclusão das Faturas e Reabrir Lote
-                        </button>
+                          Protocolo de Envio à Operadora:
+                        </span>
+                        <input
+                          type="text"
+                          className="form-input"
+                          style={{
+                            width: '190px',
+                            padding: '0.3rem 0.6rem',
+                            fontSize: '0.82rem',
+                            fontWeight: 700,
+                            backgroundColor: 'var(--bg-primary)',
+                            color: 'var(--text-primary)',
+                            borderColor: 'var(--border-color)'
+                          }}
+                          value={codigoEnvioOperadora || 'Sem protocolo'}
+                          disabled
+                          readOnly
+                        />
                       </div>
                     </div>
-                  )}
+
+                    {statusSalvo === 'Glosado' && (
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.5rem',
+                          flexWrap: 'wrap'
+                        }}
+                      >
+                        {loteInicial && aoAbrirRecurso && (
+                          <button
+                            type="button"
+                            className="btn-outline"
+                            onClick={() => aoAbrirRecurso(loteInicial)}
+                          >
+                            <MessageSquareWarning size={15} />
+                            <span>Detalhar / Tratar Glosa</span>
+                          </button>
+                        )}
+                        <input
+                          type="text"
+                          className="form-input"
+                          style={{
+                            width: '210px',
+                            backgroundColor: 'var(--bg-primary)',
+                            color: 'var(--text-primary)',
+                            borderColor: 'var(--border-color)'
+                          }}
+                          placeholder="Novo protocolo reenvio..."
+                          value={inputCodigoReenvio}
+                          onChange={(e) => setInputCodigoReenvio(e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className="btn-primary"
+                          onClick={acaoReenviarLoteGlosado}
+                        >
+                          <RotateCcw size={15} />
+                          <span>Reenviar Lote</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
               <div className="form-group">
-                <label>Observações / Protocolo do Lote</label>
+                <label>Observações / Critérios de Pendência ou Protocolo</label>
                 <textarea
                   className="form-input"
                   rows={2}
-                  placeholder="Informações complementares sobre remessa XML TISS, autorizações ou protocolo..."
+                  placeholder="Informações sobre critério de pendência, protocolo da operadora ou observações do lote..."
                   value={observacoes}
                   onChange={(e) => setObservacoes(e.target.value)}
-                  disabled={bloqueadoPorEnviada}
+                  disabled={bloqueadoParaEdicaoGuias}
                 />
               </div>
             </>
@@ -1038,8 +1663,8 @@ export function ModalLote({
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <FileText size={18} color="#778873" />
                   <strong>
-                    Atendimentos e Guias Vinculados ao Lote ({gruposAtendimentos.length}{' '}
-                    atendimento(s) / {guias.length} guia(s))
+                    Guias de Consulta Vinculadas ({guias.length} guia(s) G-nº /{' '}
+                    {qtdFaturasLote} {qtdFaturasLote === 1 ? 'Fatura' : 'Faturas'})
                   </strong>
                 </div>
                 <span
@@ -1053,136 +1678,69 @@ export function ModalLote({
                 </span>
               </div>
 
-              {permiteAlocarMaisGuias && (
-                <>
-                  {atendimentosDaOperadora.length > 0 && (
-                    <div
-                      style={{
-                        display: 'flex',
-                        gap: '0.5rem',
-                        alignItems: 'center',
-                        flexWrap: 'wrap'
-                      }}
-                    >
-                      <CalendarCheck size={16} color="#778873" />
-                      <select
-                        className="form-input"
-                        style={{ flex: 1 }}
-                        value={atendimentoParaImportarId}
-                        onChange={(e) =>
-                          setAtendimentoParaImportarId(e.target.value)
-                        }
-                      >
-                        <option value="">
-                          Alocar guia a partir de atendimento registrado (
-                          {operadoraSelecionada})...
-                        </option>
-                        {atendimentosDaOperadora.map((atd) => (
-                          <option key={atd.id} value={atd.id}>
-                            {atd.id} — {atd.pacienteNome} | {atd.descricao} (
-                            {formatarMoeda(atd.valor)})
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        className="btn-outline"
-                        onClick={importarAtendimentoComoGuia}
-                      >
-                        <Plus size={15} />
-                        <span>Alocar Guia do Atendimento</span>
-                      </button>
-                    </div>
-                  )}
-
-                  <div
+              {permiteIncluirNovasGuias ? (
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: '0.5rem',
+                    alignItems: 'center',
+                    flexWrap: 'wrap'
+                  }}
+                >
+                  <input
+                    type="text"
+                    className="form-input"
+                    style={{ flex: 1, minWidth: '220px' }}
+                    placeholder="Digite o código da Guia (ex: G-210) ou da Consulta (ex: CONS-907)..."
+                    value={numeroGuiaInput}
+                    onChange={(e) => setNumeroGuiaInput(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={incluirGuiaPeloNumeroInput}
+                  >
+                    <Plus size={15} />
+                    <span>Incluir Guia (G-nº)</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-outline"
+                    onClick={abrirModalSelecaoLupa}
+                    title="Abrir modal com lista de guias realizadas (G-nº)"
+                    aria-label="Abrir modal com lista de guias realizadas"
                     style={{
-                      display: 'grid',
-                      gridTemplateColumns: '1.1fr 1fr 0.8fr 1.3fr 0.85fr 0.85fr auto',
-                      gap: '0.5rem',
-                      alignItems: 'end'
+                      padding: '0.5rem 0.65rem',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
                     }}
                   >
-                    <div className="form-group">
-                      <label>Paciente da Guia</label>
-                      <input
-                        type="text"
-                        className="form-input"
-                        placeholder="Nome do paciente"
-                        value={guiaPaciente}
-                        onChange={(e) => setGuiaPaciente(e.target.value)}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Médico</label>
-                      <input
-                        type="text"
-                        className="form-input"
-                        placeholder="Dr(a)."
-                        value={guiaMedico}
-                        onChange={(e) => setGuiaMedico(e.target.value)}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Cód. TUSS</label>
-                      <input
-                        type="text"
-                        className="form-input"
-                        placeholder="10101012"
-                        value={guiaCodigoTuss}
-                        onChange={(e) => setGuiaCodigoTuss(e.target.value)}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Procedimento / Guia</label>
-                      <input
-                        type="text"
-                        className="form-input"
-                        placeholder="Ex: Guia SADT Ressonância"
-                        value={guiaProcedimento}
-                        onChange={(e) => setGuiaProcedimento(e.target.value)}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Data</label>
-                      <input
-                        type="date"
-                        className="form-input"
-                        value={guiaData}
-                        onChange={(e) => setGuiaData(e.target.value)}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Valor Guia (R$)</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="1"
-                        className="form-input"
-                        placeholder="0.00"
-                        value={guiaValor}
-                        onChange={(e) => setGuiaValor(e.target.value)}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      className="btn-primary"
-                      onClick={adicionarGuiaManualNoLote}
-                      style={{ height: '38px' }}
-                      title="Incluir guia neste lote"
-                    >
-                      <Plus size={16} />
-                      <span>Incluir</span>
-                    </button>
-                  </div>
-                </>
+                    <Search size={16} />
+                  </button>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    padding: '0.55rem 0.8rem',
+                    borderRadius: '6px',
+                    backgroundColor: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-color)',
+                    fontSize: '0.82rem',
+                    color: 'var(--text-secondary)'
+                  }}
+                >
+                  {status === 'Aberto' && statusSalvo !== 'Aberto'
+                    ? 'Clique em "Salvar Alterações do Lote" para confirmar a abertura do lote e liberar a inclusão ou remoção de guias.'
+                    : `Inclusão de novas guias bloqueada (só é permitido incluir novas guias quando o lote estiver salvo com o status "Aberto").`}
+                </div>
               )}
 
               <div
                 className="guias-lote-list"
                 style={{ maxHeight: '340px', gap: '0.75rem' }}
               >
-                {gruposAtendimentos.length === 0 ? (
+                {faturasEmitidasPorSenha.length === 0 ? (
                   <p
                     style={{
                       textAlign: 'center',
@@ -1191,12 +1749,13 @@ export function ModalLote({
                       padding: '1rem'
                     }}
                   >
-                    Nenhum atendimento ou guia vinculado a este lote.
+                    Nenhuma guia (G-nº) vinculada a este lote. Utilize o campo acima
+                    ou clique na lupa para selecionar guias realizadas.
                   </p>
                 ) : (
-                  gruposAtendimentos.map((grupo) => (
+                  faturasEmitidasPorSenha.map((fatura) => (
                     <div
-                      key={grupo.chaveAtendimento}
+                      key={fatura.chaveFatura}
                       style={{
                         backgroundColor: 'var(--bg-secondary)',
                         border: '1px solid var(--border-color)',
@@ -1218,32 +1777,39 @@ export function ModalLote({
                           paddingBottom: '0.45rem'
                         }}
                       >
-                        <div>
-                          <span
-                            className="badge badge-faturado"
-                            style={{ marginRight: '0.5rem' }}
-                          >
-                            Atendimento: {grupo.chaveAtendimento}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+                          {fatura.faturaId && (
+                            <span className="badge badge-enviado">
+                              Fatura: {fatura.faturaId}
+                            </span>
+                          )}
+                          <span className="badge badge-faturado">
+                            Senha Operadora: {fatura.senhaAutorizacao}
                           </span>
-                          <strong>{grupo.pacienteNome}</strong>
+                          <span className="badge badge-aberto">
+                            Consulta: {fatura.atendimentoId}
+                          </span>
+                          <strong>
+                            {fatura.pacienteNome}{' '}
+                            {fatura.pacienteId ? `(${fatura.pacienteId})` : ''}
+                          </strong>
                           <span
                             style={{
                               color: 'var(--text-secondary)',
-                              fontSize: '0.82rem',
-                              marginLeft: '0.5rem'
+                              fontSize: '0.82rem'
                             }}
                           >
-                            • Profissional: {grupo.medicoNome} • Data:{' '}
-                            {formatarDataBR(grupo.data)}
+                            • Médico: {fatura.medicoNome} • Data:{' '}
+                            {formatarDataBR(fatura.data)}
                           </span>
                         </div>
                         <strong style={{ color: 'var(--accent-color)' }}>
-                          Fatura do Atendimento ({grupo.guias.length} guia(s)):{' '}
-                          {formatarMoeda(grupo.subtotal)}
+                          {fatura.faturaId ? `${fatura.faturaId}: ` : 'Subtotal: '}
+                          {formatarMoeda(fatura.subtotal)}
                         </strong>
                       </div>
 
-                      {grupo.guias.map((g) => (
+                      {fatura.guias.map((g) => (
                         <div
                           key={g.id}
                           style={{
@@ -1268,6 +1834,17 @@ export function ModalLote({
                               [{g.codigoTuss || '10101012'}]
                             </span>{' '}
                             <span>{g.procedimento}</span>
+                            {g.senhaAutorizacao && (
+                              <span
+                                style={{
+                                  marginLeft: '0.5rem',
+                                  fontSize: '0.76rem',
+                                  color: 'var(--text-secondary)'
+                                }}
+                              >
+                                (Senha: {g.senhaAutorizacao})
+                              </span>
+                            )}
                           </div>
 
                           <div
@@ -1278,7 +1855,7 @@ export function ModalLote({
                             }}
                           >
                             <strong>{formatarMoeda(g.valor)}</strong>
-                            {permiteAlocarMaisGuias && (
+                            {permiteRemoverGuias && (
                               <button
                                 type="button"
                                 className="btn-danger"
@@ -1316,18 +1893,9 @@ export function ModalLote({
                   </strong>
                 </div>
                 <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                  Datas e horários gerados automaticamente a cada evento no lote
+                  Registro salvo com data, hora, campos e valores alterados
                 </span>
               </div>
-
-              {motivoUltimaExclusaoFatura && (
-                <div className="alert-box alert-recurso">
-                  <strong>
-                    Última Justificativa de Exclusão de Fatura Registrada:
-                  </strong>
-                  <p style={{ marginTop: '0.2rem' }}>{motivoUltimaExclusaoFatura}</p>
-                </div>
-              )}
 
               <div className="guias-lote-list" style={{ maxHeight: '340px' }}>
                 {historicoLote.length === 0 ? (
@@ -1339,8 +1907,7 @@ export function ModalLote({
                       padding: '1rem'
                     }}
                   >
-                    Nenhuma alteração registrada ainda. A data e hora serão geradas
-                    automaticamente ao salvar o lote.
+                    Nenhuma alteração registrada ainda.
                   </p>
                 ) : (
                   historicoLote.map((h) => (
@@ -1363,7 +1930,7 @@ export function ModalLote({
                           className="badge badge-faturado"
                           style={{ fontSize: '0.75rem' }}
                         >
-                          Data de Alteração: {h.dataHora}
+                          {h.dataHora}
                         </span>
                       </div>
                       <span
@@ -1374,18 +1941,6 @@ export function ModalLote({
                       >
                         {h.detalhe || h.detalhes}
                       </span>
-                      {h.motivo && (
-                        <div
-                          style={{
-                            marginTop: '0.25rem',
-                            color: '#d97706',
-                            fontWeight: 600,
-                            fontSize: '0.82rem'
-                          }}
-                        >
-                          Motivo Justificado: {h.motivo}
-                        </div>
-                      )}
                     </div>
                   ))
                 )}
@@ -1393,32 +1948,273 @@ export function ModalLote({
             </div>
           )}
 
-          <div className="modal-footer">
-            <button type="button" className="btn-realtime" onClick={aoFechar}>
-              {bloqueadoPorEnviada ? 'Fechar' : 'Cancelar'}
+          <div className="modal-footer" style={{ marginTop: 'auto' }}>
+            <button type="button" className="btn-secondary" onClick={aoFechar}>
+              Fechar
             </button>
 
-            {bloqueadoPorEnviada && loteInicial && aoAbrirRecurso ? (
-              <button
-                type="button"
-                className="btn-recurso"
-                onClick={() => {
-                  aoFechar();
-                  aoAbrirRecurso(loteInicial);
-                }}
-              >
-                <MessageSquareWarning size={16} />
-                <span>
-                  {loteInicial.recurso ? 'Atualizar Recurso' : 'Abrir Recurso'}
-                </span>
-              </button>
-            ) : (
-              <button type="submit" className="btn-primary">
-                {modoEdicao ? 'Salvar Alterações do Lote' : 'Salvar Novo Lote'}
-              </button>
-            )}
+            {(mudancaStatusNaoSalva ||
+              (statusSalvo !== 'Enviado' && statusSalvo !== 'Reenviado')) && (
+                <button type="submit" className="btn-primary">
+                  {modoEdicao ? 'Salvar Alterações do Lote' : 'Salvar Novo Lote'}
+                </button>
+              )}
           </div>
         </form>
+
+        {/* Sub-Modal da Lupa: Seleção Múltipla de Guias Realizadas (G-nº) */}
+        {modalLupaGuiasAberto && (
+          <div
+            className="modal-overlay"
+            onClick={() => setModalLupaGuiasAberto(false)}
+            style={{ zIndex: 1200 }}
+          >
+            <div
+              className="modal-content modal-content-90"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="modal-header">
+                <div>
+                  <h3 style={{ fontSize: '1.15rem' }}>
+                    Selecionar Guias de Consultas Realizadas — {operadoraSelecionada}
+                  </h3>
+                  <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                    Selecione uma ou mais guias emitidas para inclusão no lote de faturamento.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="btn-icon-square"
+                  onClick={() => setModalLupaGuiasAberto(false)}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="modal-abas">
+                <button
+                  type="button"
+                  className={`modal-aba-btn ${abaSubModalLupa === 'catalogo' ? 'active' : ''}`}
+                  onClick={() => setAbaSubModalLupa('catalogo')}
+                >
+                  <Search size={15} />
+                  <span>
+                    1. Guias Disponíveis ({guiasFiltradasNaLupa.length})
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className={`modal-aba-btn ${abaSubModalLupa === 'conferencia' ? 'active' : ''}`}
+                  onClick={() => setAbaSubModalLupa('conferencia')}
+                >
+                  <CheckCircle2 size={15} />
+                  <span>
+                    2. Conferência das Selecionadas ({guiasEscolhidasPreviewNaLupa.length})
+                  </span>
+                </button>
+              </div>
+
+              <div
+                className="modal-body-scroll"
+                style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}
+              >
+                {abaSubModalLupa === 'catalogo' && (
+                  <>
+                    <div className="search-box">
+                      <Search size={16} color="#5A6B57" />
+                      <input
+                        type="text"
+                        placeholder="Filtrar por G-nº, CONS-nº, PAC-nº, paciente, senha de autorização ou procedimento..."
+                        value={buscaModalLupa}
+                        onChange={(e) => setBuscaModalLupa(e.target.value)}
+                      />
+                    </div>
+
+                    <div className="guias-lote-box">
+                      <strong>
+                        Lista de Guias Realizadas ({guiasFiltradasNaLupa.length})
+                      </strong>
+                      <div className="guias-lote-list" style={{ maxHeight: '340px' }}>
+                        {guiasFiltradasNaLupa.length === 0 ? (
+                          <p
+                            style={{
+                              fontSize: '0.84rem',
+                              color: 'var(--text-secondary)',
+                              padding: '0.75rem'
+                            }}
+                          >
+                            Nenhuma guia realizada disponível para {operadoraSelecionada}.
+                          </p>
+                        ) : (
+                          guiasFiltradasNaLupa.map((cand) => {
+                            const loteOcupado = guiasAlocadasEmOutrosLotes.get(
+                              cand.numeroGuia.toUpperCase()
+                            );
+                            const selecionada = guiasSelecionadasNoModalLupa.includes(
+                              cand.numeroGuia
+                            );
+                            const mesmoTipoLote =
+                              tipoAtendimento === 'Misto' ||
+                              cand.tipoAtendimento === tipoAtendimento;
+
+                            return (
+                              <label
+                                key={cand.numeroGuia}
+                                className="guia-lote-item"
+                                style={{
+                                  cursor: loteOcupado ? 'not-allowed' : 'pointer',
+                                  opacity: loteOcupado ? 0.55 : 1
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '0.65rem'
+                                  }}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={selecionada}
+                                    disabled={Boolean(loteOcupado)}
+                                    onChange={() =>
+                                      alternarGuiaNoModalLupa(cand.numeroGuia)
+                                    }
+                                  />
+                                  <div>
+                                    <div style={{ fontWeight: 600 }}>
+                                      <span
+                                        style={{
+                                          color: '#778873',
+                                          marginRight: '0.4rem'
+                                        }}
+                                      >
+                                        {cand.numeroGuia}
+                                      </span>
+                                      {cand.pacienteNome} ({cand.pacienteId}) —{' '}
+                                      {cand.procedimento}
+                                    </div>
+                                    <small style={{ color: 'var(--text-secondary)' }}>
+                                      Consulta: <strong>{cand.atendimentoId}</strong> •
+                                      Senha Operadora:{' '}
+                                      <strong>{cand.senhaAutorizacao}</strong> • Tipo:{' '}
+                                      <strong>{cand.tipoAtendimento}</strong>
+                                      {!mesmoTipoLote ? ' (Outro tipo)' : ''}
+                                      {loteOcupado
+                                        ? ` • Já incluída no lote ${loteOcupado}`
+                                        : ''}
+                                    </small>
+                                  </div>
+                                </div>
+                                <strong>{formatarMoeda(cand.valor)}</strong>
+                              </label>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {abaSubModalLupa === 'conferencia' && (
+                  <div className="guias-lote-box">
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexWrap: 'wrap'
+                      }}
+                    >
+                      <strong>
+                        Conferência das Guias Escolhidas para o Lote ({codigo}) —{' '}
+                        {guiasEscolhidasPreviewNaLupa.length} selecionada(s)
+                      </strong>
+                      <strong style={{ color: 'var(--accent-color)' }}>
+                        Subtotal Selecionado:{' '}
+                        {formatarMoeda(
+                          guiasEscolhidasPreviewNaLupa.reduce((s, g) => s + g.valor, 0)
+                        )}
+                      </strong>
+                    </div>
+
+                    <div className="guias-lote-list" style={{ maxHeight: '340px' }}>
+                      {guiasEscolhidasPreviewNaLupa.length === 0 ? (
+                        <p
+                          style={{
+                            fontSize: '0.82rem',
+                            color: 'var(--text-secondary)',
+                            padding: '0.5rem'
+                          }}
+                        >
+                          Marque uma ou mais guias na aba "1. Guias Disponíveis" para
+                          conferi-las aqui antes de confirmar.
+                        </p>
+                      ) : (
+                        guiasEscolhidasPreviewNaLupa.map((g) => (
+                          <div key={g.numeroGuia} className="guia-lote-item">
+                            <div>
+                              <strong style={{ color: '#778873' }}>
+                                {g.numeroGuia}
+                              </strong>{' '}
+                              — <strong>{g.pacienteNome}</strong> ({g.pacienteId}) •{' '}
+                              {g.procedimento}
+                              <small
+                                style={{
+                                  display: 'block',
+                                  color: 'var(--text-secondary)'
+                                }}
+                              >
+                                Consulta: {g.atendimentoId} • Senha:{' '}
+                                {g.senhaAutorizacao} • Tipo: {g.tipoAtendimento}
+                              </small>
+                            </div>
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.5rem'
+                              }}
+                            >
+                              <strong>{formatarMoeda(g.valor)}</strong>
+                              <button
+                                type="button"
+                                className="btn-danger"
+                                onClick={() => alternarGuiaNoModalLupa(g.numeroGuia)}
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn-realtime"
+                  onClick={() => setModalLupaGuiasAberto(false)}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={confirmarSelecaoModalLupa}
+                >
+                  <Check size={16} />
+                  <span>
+                    Confirmar Guias Selecionadas ({guiasEscolhidasPreviewNaLupa.length})
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

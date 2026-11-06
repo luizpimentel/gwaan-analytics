@@ -11,7 +11,7 @@ export interface OpcaoActionMenu {
 
 interface ActionMenuProps {
   opcoes: OpcaoActionMenu[];
-  aoExcluir: () => void;
+  aoExcluir?: () => void;
   tituloExcluir?: string;
 }
 
@@ -31,19 +31,19 @@ export function ActionMenu({
   function calcularPosicao() {
     if (!botaoRef.current) return;
     const rect = botaoRef.current.getBoundingClientRect();
-    const larguraMenu = 215;
-    const alturaEstimada = Math.max(90, opcoes.length * 38 + 16);
+    const larguraMenu = 172;
+    const alturaEstimada = Math.max(72, opcoes.length * 30 + 13);
 
     const espacoAbaixo = window.innerHeight - rect.bottom;
-    const abrirParaCima = espacoAbaixo < alturaEstimada + 16 && rect.top > alturaEstimada;
+    const abrirParaCima = espacoAbaixo < alturaEstimada + 14 && rect.top > alturaEstimada;
 
     const top = abrirParaCima
-      ? Math.max(8, rect.top - alturaEstimada - 6)
-      : rect.bottom + 5;
+      ? Math.max(8, rect.top - alturaEstimada - 5)
+      : rect.bottom + 4;
 
     const left = Math.max(
       8,
-      Math.min(rect.right - larguraMenu, window.innerWidth - larguraMenu - 12)
+      Math.min(rect.right - larguraMenu, window.innerWidth - larguraMenu - 10)
     );
 
     setPosicaoMenu({ top, left });
@@ -133,14 +133,16 @@ export function ActionMenu({
           )}
       </div>
 
-      <button
-        type="button"
-        className="btn-danger"
-        title={tituloExcluir}
-        onClick={aoExcluir}
-      >
-        <Trash2 size={14} />
-      </button>
+      {aoExcluir && (
+        <button
+          type="button"
+          className="btn-danger"
+          title={tituloExcluir}
+          onClick={aoExcluir}
+        >
+          <Trash2 size={14} />
+        </button>
+      )}
     </div>
   );
 }

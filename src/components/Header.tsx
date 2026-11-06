@@ -16,7 +16,7 @@ export function Header() {
           }}
         >
           <ShieldCheck size={18} />
-          <span>Sistema de Gestão Clínica e Faturamento Hospitalar</span>
+          <span>Faturamento Hospitalar, Auditoria TISS/TUSS & Ciclo de Receita</span>
         </div>
       </div>
 

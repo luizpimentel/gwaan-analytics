@@ -75,6 +75,9 @@ export function Profissionais({
   >(null);
 
   const [modalNovoAberto, setModalNovoAberto] = useState<boolean>(false);
+  const [abaModalNovo, setAbaModalNovo] = useState<'identificacao' | 'contato'>(
+    'identificacao'
+  );
 
   const [foto, setFoto] = useState<string>(FOTO_PROFISSIONAL_PADRAO);
   const [nome, setNome] = useState<string>('');
@@ -83,6 +86,8 @@ export function Profissionais({
   const [especialidade, setEspecialidade] = useState<string>('');
   const [crm, setCrm] = useState<string>('');
   const [ufCrm, setUfCrm] = useState<string>('SP');
+  const [cbo, setCbo] = useState<string>('225120');
+  const [percentualRepasse, setPercentualRepasse] = useState<string>('70');
   const [telefone, setTelefone] = useState<string>('');
   const [email, setEmail] = useState<string>('');
   const [endereco, setEndereco] = useState<string>('');
@@ -118,6 +123,8 @@ export function Profissionais({
     setEspecialidade(prof.especialidade || '');
     setCrm(prof.crm || '');
     setUfCrm(prof.ufCrm || 'SP');
+    setCbo(prof.cbo || '225120');
+    setPercentualRepasse(String(prof.percentualRepasse ?? 70));
     setTelefone(prof.telefone || '');
     setEmail(prof.email || '');
     setEndereco(prof.endereco || '');
@@ -138,6 +145,8 @@ export function Profissionais({
     setEspecialidade('');
     setCrm('');
     setUfCrm('SP');
+    setCbo('225120');
+    setPercentualRepasse('70');
     setTelefone('');
     setEmail('');
     setEndereco('');
@@ -167,6 +176,10 @@ export function Profissionais({
       especialidade: ehMed ? especialidade.trim() : '',
       crm: ehMed ? crm.trim() : '',
       ufCrm: ehMed ? ufCrm.trim().toUpperCase() : 'SP',
+      cbo: ehMed ? cbo.trim() || '225120' : '',
+      percentualRepasse: ehMed
+        ? Math.min(100, Math.max(0, Number(percentualRepasse) || 70))
+        : 0,
       telefone: telefone.trim(),
       email: email.trim(),
       endereco: endereco.trim(),
@@ -201,6 +214,10 @@ export function Profissionais({
       especialidade: ehMed ? especialidade.trim() : '',
       crm: ehMed ? crm.trim() : '',
       ufCrm: ehMed ? ufCrm.trim().toUpperCase() : 'SP',
+      cbo: ehMed ? cbo.trim() || '225120' : '',
+      percentualRepasse: ehMed
+        ? Math.min(100, Math.max(0, Number(percentualRepasse) || 70))
+        : 0,
       telefone: telefone.trim(),
       email: email.trim(),
       endereco: endereco.trim(),
@@ -214,11 +231,16 @@ export function Profissionais({
   if (profissionalAtivo) {
     const ehMedicoAtivo = ehProfissionalMedico(cargo || profissionalAtivo.cargo);
     const atendimentosDoMedico = atendimentos.filter(
-      (a) => a.medicoId === profissionalAtivo.id
+      (a) => a.medicoId === profissionalAtivo.id && a.status === 'Realizado'
     );
     const volumeGeradoMedico = atendimentosDoMedico
       .filter((a) => a.status !== 'Cancelado')
       .reduce((acc, a) => acc + Math.max(0, a.valor - (a.desconto ?? 0)), 0);
+    const percRepasseNum = Math.min(
+      100,
+      Math.max(0, Number(percentualRepasse) || 70)
+    );
+    const valorRepasseEstimado = (volumeGeradoMedico * percRepasseNum) / 100;
 
     return (
       <main className="dashboard-body">
@@ -324,16 +346,26 @@ export function Profissionais({
                 }}
               >
                 <div>
-                  <span className="strip-label">Atendimentos</span>
+                  <span className="strip-label">Contas / Guias</span>
                   <strong>{atendimentosDoMedico.length}</strong>
                 </div>
                 <div>
-                  <span className="strip-label">Realizados</span>
-                  <strong>
-                    {
-                      atendimentosDoMedico.filter((a) => a.status === 'Realizado')
-                        .length
-                    }
+                  <span className="strip-label">CBO TISS</span>
+                  <strong>{cbo || '225120'}</strong>
+                </div>
+                <div
+                  style={{
+                    gridColumn: '1 / -1',
+                    textAlign: 'center',
+                    borderTop: '1px solid var(--border-color)',
+                    paddingTop: '0.55rem'
+                  }}
+                >
+                  <span className="strip-label">Produção Faturável Total</span>
+                  <strong
+                    style={{ fontSize: '1.05rem', color: 'var(--accent-color)' }}
+                  >
+                    {formatarMoeda(volumeGeradoMedico)}
                   </strong>
                 </div>
                 <div
@@ -344,11 +376,11 @@ export function Profissionais({
                     paddingTop: '0.55rem'
                   }}
                 >
-                  <span className="strip-label">Volume Total</span>
-                  <strong
-                    style={{ fontSize: '1.05rem', color: 'var(--accent-color)' }}
-                  >
-                    {formatarMoeda(volumeGeradoMedico)}
+                  <span className="strip-label">
+                    Repasse Médico Estimado ({percRepasseNum}%)
+                  </span>
+                  <strong style={{ fontSize: '1.02rem', color: '#4d6b53' }}>
+                    {formatarMoeda(valorRepasseEstimado)}
                   </strong>
                 </div>
               </div>
@@ -549,6 +581,39 @@ export function Profissionais({
                 )}
               </div>
 
+              {exibeEspecialidadeNoForm && (
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: '0.75rem'
+                  }}
+                >
+                  <div className="form-group">
+                    <label>Código CBO (TISS / ANS)</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="Ex: 225120"
+                      value={cbo}
+                      onChange={(e) => setCbo(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Percentual de Repasse Médico (%)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      className="form-input"
+                      value={percentualRepasse}
+                      onChange={(e) => setPercentualRepasse(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
+
               <div className="form-group">
                 <label>Endereço Completo</label>
                 <input
@@ -607,7 +672,7 @@ export function Profissionais({
                 >
                   <CalendarCheck size={18} color="#778873" />
                   <span>
-                    Atendimentos Clínicos de {profissionalAtivo.nome} (
+                    Consultas Clínicas (CONS-nº) de {profissionalAtivo.nome} (
                     {atendimentosDoMedico.length})
                   </span>
                 </h2>
@@ -618,8 +683,8 @@ export function Profissionais({
                     marginTop: '0.2rem'
                   }}
                 >
-                  Clique em qualquer atendimento da lista para abrir o modal e visualizar ou
-                  imprimir a Guia TUSS.
+                  Clique em qualquer consulta (CONS-nº) da lista para abrir o modal e visualizar ou
+                  imprimir as Guias (G-nº).
                 </p>
               </div>
 
@@ -632,7 +697,7 @@ export function Profissionais({
                 }}
               >
                 <Plus size={16} />
-                <span>Novo Atendimento para este Médico</span>
+                <span>Nova Consulta (CONS-nº) para este Médico</span>
               </button>
             </div>
 
@@ -640,8 +705,8 @@ export function Profissionais({
               <table className="demandas-table">
                 <thead>
                   <tr>
-                    <th>Código Atd.</th>
-                    <th>Paciente</th>
+                    <th>Cód. Consulta (PK)</th>
+                    <th>Paciente (PAC-nº)</th>
                     <th>Descrição do Procedimento</th>
                     <th>Data e Hora</th>
                     <th>Operadora</th>
@@ -723,6 +788,7 @@ export function Profissionais({
         {modalAtdMedicoAberto && (
           <ModalAtendimento
             atendimentoInicial={atendimentoEmFoco}
+            atendimentosExistentes={atendimentos}
             pacientes={pacientes}
             medicos={profissionais}
             operadoras={operadoras}
@@ -790,11 +856,11 @@ export function Profissionais({
       >
         <div>
           <h1 style={{ fontSize: '1.75rem', marginBottom: '0.35rem' }}>
-            Profissionais e Quadro de Funcionários
+            Corpo Clínico Executante, Repasse & Equipe de Faturamento
           </h1>
           <p style={{ color: 'var(--text-secondary)' }}>
-            Gerencie todos os colaboradores e médicos da empresa. Clique em qualquer
-            profissional para abrir sua ficha individual e histórico.
+            Gerencie médicos executantes (CRM, CBO TISS e percentual de repasse sobre produção)
+            e analistas de faturamento hospitalar.
           </p>
         </div>
 
@@ -874,14 +940,14 @@ export function Profissionais({
           <table className="demandas-table">
             <thead>
               <tr>
-                <th>Profissional</th>
+                <th>Profissional / Médico</th>
                 <th>ID</th>
                 <th>CPF</th>
-                <th>Função / Cargo</th>
+                <th>Cargo / CRM & CBO</th>
                 <th>Especialidade</th>
                 <th>Contato</th>
-                <th>Endereço</th>
-                <th>Atendimentos</th>
+                <th>Repasse Médico</th>
+                <th>Produção (Guias)</th>
                 <th>Ações</th>
               </tr>
             </thead>
@@ -902,7 +968,9 @@ export function Profissionais({
               ) : (
                 filtrados.map((prof) => {
                   const ehMed = ehProfissionalMedico(prof.cargo);
-                  const atds = atendimentos.filter((a) => a.medicoId === prof.id);
+                  const atds = atendimentos.filter(
+                    (a) => a.medicoId === prof.id && a.status === 'Realizado'
+                  );
 
                   return (
                     <tr
@@ -938,7 +1006,7 @@ export function Profissionais({
                         <div style={{ fontWeight: 600 }}>{prof.cargo}</div>
                         {ehMed && prof.crm && (
                           <small style={{ color: 'var(--text-secondary)' }}>
-                            CRM/{prof.ufCrm || 'SP'} {prof.crm}
+                            CRM/{prof.ufCrm || 'SP'} {prof.crm} • CBO {prof.cbo || '225120'}
                           </small>
                         )}
                       </td>
@@ -949,7 +1017,7 @@ export function Profissionais({
                           </span>
                         ) : (
                           <span style={{ color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
-                            Não se aplica
+                            Auditoria / Adm.
                           </span>
                         )}
                       </td>
@@ -959,13 +1027,21 @@ export function Profissionais({
                           {prof.email}
                         </small>
                       </td>
-                      <td style={{ fontSize: '0.84rem', color: 'var(--text-secondary)' }}>
-                        {prof.endereco || '-'}
+                      <td>
+                        {ehMed ? (
+                          <span className="badge badge-enviado">
+                            {prof.percentualRepasse ?? 70}% sobre guia
+                          </span>
+                        ) : (
+                          <span style={{ color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
+                            Fixo / CLT
+                          </span>
+                        )}
                       </td>
                       <td>
                         {ehMed ? (
                           <span className="badge badge-faturado">
-                            {atds.length} {atds.length === 1 ? 'atendimento' : 'atendimentos'}
+                            {atds.length} {atds.length === 1 ? 'guia/conta' : 'guias/contas'}
                           </span>
                         ) : (
                           <span style={{ color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
@@ -1027,155 +1103,182 @@ export function Profissionais({
               </button>
             </div>
 
+            <div className="modal-abas">
+              <button
+                type="button"
+                className={`modal-aba-btn ${abaModalNovo === 'identificacao' ? 'active' : ''}`}
+                onClick={() => setAbaModalNovo('identificacao')}
+              >
+                <User size={15} />
+                <span>Identificação, Cargo & CRM</span>
+              </button>
+              <button
+                type="button"
+                className={`modal-aba-btn ${abaModalNovo === 'contato' ? 'active' : ''}`}
+                onClick={() => setAbaModalNovo('contato')}
+              >
+                <Phone size={15} />
+                <span>Contato & Endereço</span>
+              </button>
+            </div>
+
             <form
               onSubmit={salvarNovoProfissional}
               style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}
             >
-              <PhotoPicker
-                fotoAtual={foto}
-                aoAlterarFoto={setFoto}
-                rotulo="Foto do Profissional (Upload ou Tirar na Hora)"
-              />
-
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1.4fr 1fr',
-                  gap: '0.75rem'
-                }}
-              >
-                <div className="form-group">
-                  <label>Nome Completo</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="Ex: Dr. Eduardo Cavalcanti ou Ana Beatriz"
-                    value={nome}
-                    onChange={(e) => setNome(e.target.value)}
-                    required
+              {abaModalNovo === 'identificacao' ? (
+                <>
+                  <PhotoPicker
+                    fotoAtual={foto}
+                    aoAlterarFoto={setFoto}
+                    rotulo="Foto do Profissional (Upload ou Tirar na Hora)"
                   />
-                </div>
 
-                <div className="form-group">
-                  <label>CPF</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="000.000.000-00"
-                    value={cpf}
-                    onChange={(e) => setCpf(formatarCPF(e.target.value))}
-                    required
-                  />
-                </div>
-              </div>
-
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: exibeEspecialidadeNoForm
-                    ? '1.2fr 1.1fr 0.8fr 0.6fr'
-                    : '1fr',
-                  gap: '0.75rem'
-                }}
-              >
-                <div className="form-group">
-                  <label>Função / Cargo</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="Ex: Médico Clínico, Analista Financeiro, Recepcionista..."
-                    value={cargo}
-                    onChange={(e) => setCargo(e.target.value)}
-                    required
-                  />
-                </div>
-
-                {exibeEspecialidadeNoForm && (
-                  <>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1.4fr 1fr',
+                      gap: '0.75rem'
+                    }}
+                  >
                     <div className="form-group">
-                      <label>Especialidade</label>
+                      <label>Nome Completo</label>
                       <input
                         type="text"
                         className="form-input"
-                        placeholder="Ex: Cardiologia"
-                        value={especialidade}
-                        onChange={(e) => setEspecialidade(e.target.value)}
-                        required={exibeEspecialidadeNoForm}
+                        placeholder="Ex: Dr. Eduardo Cavalcanti ou Ana Beatriz"
+                        value={nome}
+                        onChange={(e) => setNome(e.target.value)}
+                        required
                       />
                     </div>
 
                     <div className="form-group">
-                      <label>CRM (Opcional)</label>
+                      <label>CPF</label>
                       <input
                         type="text"
                         className="form-input"
-                        placeholder="Ex: 142.890"
-                        value={crm}
-                        onChange={(e) => setCrm(e.target.value)}
+                        placeholder="000.000.000-00"
+                        value={cpf}
+                        onChange={(e) => setCpf(formatarCPF(e.target.value))}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: exibeEspecialidadeNoForm
+                        ? '1.2fr 1.1fr 0.8fr 0.6fr'
+                        : '1fr',
+                      gap: '0.75rem'
+                    }}
+                  >
+                    <div className="form-group">
+                      <label>Função / Cargo</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="Ex: Médico Clínico, Analista Financeiro, Recepcionista..."
+                        value={cargo}
+                        onChange={(e) => setCargo(e.target.value)}
+                        required
+                      />
+                    </div>
+
+                    {exibeEspecialidadeNoForm && (
+                      <>
+                        <div className="form-group">
+                          <label>Especialidade</label>
+                          <input
+                            type="text"
+                            className="form-input"
+                            placeholder="Ex: Cardiologia"
+                            value={especialidade}
+                            onChange={(e) => setEspecialidade(e.target.value)}
+                            required={exibeEspecialidadeNoForm}
+                          />
+                        </div>
+
+                        <div className="form-group">
+                          <label>CRM (Opcional)</label>
+                          <input
+                            type="text"
+                            className="form-input"
+                            placeholder="Ex: 142.890"
+                            value={crm}
+                            onChange={(e) => setCrm(e.target.value)}
+                          />
+                        </div>
+
+                        <div className="form-group">
+                          <label>UF</label>
+                          <select
+                            className="form-input"
+                            value={ufCrm}
+                            onChange={(e) => setUfCrm(e.target.value)}
+                          >
+                            {UFS_BRASIL.map((uf) => (
+                              <option key={uf} value={uf}>
+                                {uf}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1fr 1.3fr',
+                      gap: '0.75rem'
+                    }}
+                  >
+                    <div className="form-group">
+                      <label>Telefone</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="(11) 99999-0000"
+                        value={telefone}
+                        onChange={(e) =>
+                          setTelefone(formatarTelefone(e.target.value))
+                        }
+                        required
                       />
                     </div>
 
                     <div className="form-group">
-                      <label>UF</label>
-                      <select
+                      <label>E-mail</label>
+                      <input
+                        type="email"
                         className="form-input"
-                        value={ufCrm}
-                        onChange={(e) => setUfCrm(e.target.value)}
-                      >
-                        {UFS_BRASIL.map((uf) => (
-                          <option key={uf} value={uf}>
-                            {uf}
-                          </option>
-                        ))}
-                      </select>
+                        placeholder="profissional@gwaan.med.br"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        required
+                      />
                     </div>
-                  </>
-                )}
-              </div>
+                  </div>
 
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 1.3fr',
-                  gap: '0.75rem'
-                }}
-              >
-                <div className="form-group">
-                  <label>Telefone</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="(11) 99999-0000"
-                    value={telefone}
-                    onChange={(e) => setTelefone(formatarTelefone(e.target.value))}
-                    required
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>E-mail</label>
-                  <input
-                    type="email"
-                    className="form-input"
-                    placeholder="profissional@gwaan.med.br"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label>Endereço Completo</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="Rua, Número, Bairro, Cidade - UF"
-                  value={endereco}
-                  onChange={(e) => setEndereco(e.target.value)}
-                  required
-                />
-              </div>
+                  <div className="form-group">
+                    <label>Endereço Completo</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="Rua, Número, Bairro, Cidade - UF"
+                      value={endereco}
+                      onChange={(e) => setEndereco(e.target.value)}
+                      required
+                    />
+                  </div>
+                </>
+              )}
 
               <div className="modal-footer">
                 <button

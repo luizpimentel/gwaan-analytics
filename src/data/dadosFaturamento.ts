@@ -1,15 +1,27 @@
-export type StatusFaturamento = 'Aberto' | 'Faturada' | 'Enviada';
+export type StatusFaturamento =
+  | 'Aberto'
+  | 'Fechado'
+  | 'Enviado'
+  | 'Glosado'
+  | 'Reenviado'
+  | 'Pendente';
 
 export type StatusParticular = 'Pago' | 'Não pago' | 'Fechado';
 
 export type StatusLoteParticular = 'Aberto' | 'Fechado';
 
 export type TipoGuiaParticular =
-  | 'Guia Principal'
+  | 'Primeiro Atendimento'
+  | 'Consulta'
   | 'Retorno'
-  | 'Complementação'
-  | 'Prorrogação'
-  | 'Nova Guia';
+  | 'Complementação';
+
+export type TipoGlosaLote =
+  | 'Administrativa'
+  | 'Técnica / Médica'
+  | 'Divergência de Valor / Tabela TUSS'
+  | 'Elegibilidade / Carteirinha'
+  | 'Ausência de Senha / Autorização';
 
 export type PrioridadeDemanda = 'Alta' | 'Média' | 'Baixa';
 
@@ -26,7 +38,7 @@ export type StatusAtendimento =
   | 'Realizado'
   | 'Cancelado';
 
-export type StatusGuiaTuss = 'Confirmado' | 'Realizado' | 'Cancelada';
+export type StatusGuiaTuss = 'Realizado' | 'Cancelada';
 
 export type TipoAtendimentoLote =
   | 'Consulta'
@@ -37,8 +49,11 @@ export type TipoAtendimentoLote =
   | 'Misto';
 
 export interface RecursoLote {
+  tipoGlosa?: TipoGlosaLote;
   motivo: string;
+  justificativaRecurso?: string;
   dataAbertura: string;
+  resolvidoEm?: string;
 }
 
 export interface HistoricoAlteracaoLote {
@@ -51,30 +66,38 @@ export interface HistoricoAlteracaoLote {
 }
 
 export interface GuiaLote {
-  id: string;
-  atendimentoId?: string;
+  id: string; // Chave primária: G-nº
+  numeroGuiaOperadora?: string; // Código da guia fornecido pela operadora (fallback: id G-nº)
+  atendimentoId?: string; // Chave primária da Consulta: CONS-nº
+  faturaId?: string; // Chave primária da Fatura (gerada quando o Lote fecha): FAT-nº
+  senhaAutorizacao?: string; // Senha emitida pela operadora (obrigatória para operadoras, ausente para particular)
+  tipoAtendimento?: TipoAtendimentoLote;
   codigoTuss?: string;
-  pacienteId?: string;
+  pacienteId?: string; // Chave primária do Paciente: PAC-nº
   pacienteNome: string;
   medicoNome: string;
   procedimento: string;
+  procedimentos?: ProcedimentoAtendimento[];
   data: string;
   valor: number;
   statusGuia?: StatusGuiaTuss;
 }
 
 export interface DemandaFinanceira {
-  id: string;
+  id: string; // Chave primária do Lote: LOTE-nº
   operadora: string;
   descricao: string;
   tipoAtendimento: TipoAtendimentoLote;
   dataCriacao: string;
+  horaCriacao?: string;
   dataAlteracaoOuEnvio: string;
   valor: number;
   status: StatusFaturamento;
   prioridade: PrioridadeDemanda;
   atualizadoHa: string;
   guias: GuiaLote[];
+  codigoEnvioOperadora?: string;
+  codigoReenvioOperadora?: string;
   faturasEmitidas?: boolean;
   faturasEmitidasEm?: string;
   motivoUltimaExclusaoFatura?: string;
@@ -85,36 +108,38 @@ export interface DemandaFinanceira {
 }
 
 export interface GuiaParticular {
-  id: string;
-  atendimentoId: string;
+  id: string; // Chave primária da Guia: G-nº
+  atendimentoId: string; // Chave primária da Consulta: CONS-nº
   tipoGuia?: TipoGuiaParticular;
   tipoGuiaComplementar?: TipoGuiaParticular;
-  pacienteId?: string;
+  pacienteId?: string; // Chave primária do Paciente: PAC-nº
   paciente: string;
   medicoNome?: string;
   descricao: string;
   data: string;
   nf: string;
+  comprovanteEmitido?: boolean;
+  comprovanteCodigo?: string;
   valorBruto: number;
   desconto: number;
   valor: number;
   status: StatusParticular;
   prioridade: PrioridadeDemanda;
   formaPagamento: FormaPagamentoParticular;
-  loteId?: string;
+  loteId?: string; // Chave primária do Lote: LOTE-nº
   observacoes?: string;
   atualizadoEm: string;
   recurso?: RecursoLote;
 }
 
 export interface LoteParticular {
-  id: string;
+  id: string; // Chave primária do Lote: LOTE-nº
   descricao: string;
   dataCriacao: string;
   dataFechamento: string;
   prioridade: PrioridadeDemanda;
   status: StatusLoteParticular;
-  guiasIds: string[];
+  guiasIds: string[]; // Lista de G-nº
   valorTotal: number;
   observacoes?: string;
 }
@@ -124,6 +149,7 @@ export interface Operadora {
   nome: string;
   cnpj: string;
   datasEnvio: string[];
+  planos?: string[];
 }
 
 export interface Profissional {
@@ -134,6 +160,8 @@ export interface Profissional {
   cargo: string;
   crm: string;
   ufCrm: string;
+  cbo?: string;
+  percentualRepasse?: number;
   especialidade: string;
   telefone: string;
   email: string;
@@ -152,7 +180,7 @@ export function ehProfissionalMedico(cargoOuFuncao: string): boolean {
 }
 
 export interface Paciente {
-  id: string;
+  id: string; // Chave primária do Paciente: PAC-nº
   foto: string;
   nome: string;
   sobrenome: string;
@@ -162,12 +190,16 @@ export interface Paciente {
   dataNascimento: string;
   endereco: string;
   cidade: string;
+  convenioPadrao?: string;
+  numeroCarteirinha?: string;
+  planoConvenio?: string;
   observacoesClinicas?: string;
 }
 
 export interface HistoricoValorAtendimento {
   id: string;
   dataHora: string;
+  descricaoAcao?: string;
   valorAnterior: number;
   valorNovo: number;
   descontoAnterior: number;
@@ -179,12 +211,20 @@ export interface ProcedimentoAtendimento {
   codigoTuss: string;
   descricao: string;
   valor: number;
+  desconto?: number;
+  senhaAutorizacao?: string;
+  numeroGuia?: string; // Código da Guia Empresa (G-nº) associada à senha deste procedimento
+  numeroGuiaOperadora?: string; // Código da Guia Operadora (quando Operadora !== Particular; fallback para numeroGuia)
 }
 
 export interface Atendimento {
-  id: string;
+  id: string; // Código da Consulta: CONS-nº
+  numeroGuia?: string; // Guia empresa principal: G-nº
+  numeroGuiaOperadora?: string; // Guia operadora principal
+  senhaAutorizacao?: string;
+  tipoAtendimento?: TipoAtendimentoLote;
   codigoTuss?: string;
-  pacienteId: string;
+  pacienteId: string; // Código do Paciente: PAC-nº
   pacienteNome: string;
   medicoId: string;
   medicoNome: string;
@@ -194,11 +234,187 @@ export interface Atendimento {
   data: string;
   hora: string;
   operadora: string;
+  plano?: string;
+  matricula?: string;
   status: StatusAtendimento;
   valor: number;
   desconto?: number;
   historicoAlteracoes?: HistoricoValorAtendimento[];
   guiaCancelada?: boolean;
+}
+
+export interface GuiaDerivadaDaConsulta extends Atendimento {
+  numeroGuia: string;
+  numeroGuiaOperadora?: string;
+  numeroGuiaPK: string;
+  consultaIdPK: string;
+  codigoTussPrincipal: string;
+  procedimentos: ProcedimentoAtendimento[];
+  valorTotal: number;
+  valorLiquido: number;
+  loteVinculadoId?: string;
+  faturaVinculadaId?: string;
+}
+
+export function extrairGuiasDaConsulta(
+  consulta: Atendimento
+): GuiaDerivadaDaConsulta[] {
+  const numConsBase = consulta.id.replace(/\D/g, '') || '100';
+  const guiaPrincipalPadrao =
+    consulta.numeroGuia && consulta.numeroGuia.startsWith('G-')
+      ? consulta.numeroGuia
+      : `G-${numConsBase}`;
+
+  const procs: ProcedimentoAtendimento[] =
+    consulta.procedimentos && consulta.procedimentos.length > 0
+      ? consulta.procedimentos
+      : [
+        {
+          id: `PROC-${consulta.id}-1`,
+          codigoTuss: consulta.codigoTuss,
+          descricao: consulta.descricao,
+          valor: consulta.valor,
+          desconto: consulta.operadora === 'Particular' ? consulta.desconto : undefined,
+          senhaAutorizacao:
+            consulta.operadora === 'Particular'
+              ? undefined
+              : consulta.senhaAutorizacao,
+          numeroGuia: guiaPrincipalPadrao,
+          numeroGuiaOperadora:
+            consulta.operadora === 'Particular'
+              ? guiaPrincipalPadrao
+              : consulta.numeroGuiaOperadora || guiaPrincipalPadrao
+        }
+      ];
+
+  if (consulta.operadora === 'Particular') {
+    const somaParticular = procs.reduce((acc, p) => acc + (Number(p.valor) || 0), 0);
+    const somaDescontoProcs = procs.reduce(
+      (acc, p) => acc + (Number(p.desconto) || 0),
+      0
+    );
+    const descontoFinalPart =
+      somaDescontoProcs > 0 ? somaDescontoProcs : (consulta.desconto ?? 0);
+    const guiaId = procs[0]?.numeroGuia?.startsWith('G-')
+      ? procs[0].numeroGuia
+      : guiaPrincipalPadrao;
+    const tussPart = procs[0]?.codigoTuss || consulta.codigoTuss;
+    const valorBrutoPart = somaParticular > 0 ? somaParticular : consulta.valor;
+    const valorLiqPart = Math.max(0, valorBrutoPart - descontoFinalPart);
+
+    return [
+      {
+        ...consulta,
+        id: guiaId,
+        numeroGuia: guiaId,
+        numeroGuiaOperadora: guiaId,
+        numeroGuiaPK: guiaId,
+        consultaIdPK: consulta.id,
+        senhaAutorizacao: undefined,
+        codigoTuss: tussPart,
+        codigoTussPrincipal: tussPart,
+        descricao: procs.map((p) => p.descricao).join(' + ') || consulta.descricao,
+        procedimentos: procs.map((p) => ({
+          ...p,
+          senhaAutorizacao: undefined,
+          numeroGuia: guiaId,
+          numeroGuiaOperadora: guiaId
+        })),
+        valor: valorBrutoPart,
+        desconto: descontoFinalPart,
+        valorTotal: valorBrutoPart,
+        valorLiquido: valorLiqPart
+      }
+    ];
+  }
+
+  // Agrupa procedimentos pela Senha de Autorização
+  const gruposPorSenha = new Map<string, ProcedimentoAtendimento[]>();
+  procs.forEach((proc, idx) => {
+    const senhaLimpa =
+      (proc.senhaAutorizacao || consulta.senhaAutorizacao || '').trim() ||
+      `AUTH-${numConsBase}${idx + 1}`;
+    const listaAtual = gruposPorSenha.get(senhaLimpa) || [];
+    listaAtual.push({
+      ...proc,
+      senhaAutorizacao: senhaLimpa
+    });
+    gruposPorSenha.set(senhaLimpa, listaAtual);
+  });
+
+  const guiasGeradas: GuiaDerivadaDaConsulta[] = [];
+  const guiasUsadasNestaConsulta = new Set<string>();
+  let indiceGrupo = 0;
+
+  gruposPorSenha.forEach((procsDoGrupo, senhaGrupo) => {
+    const guiaExistenteNoProc = procsDoGrupo.find(
+      (p) => p.numeroGuia && p.numeroGuia.startsWith('G-')
+    )?.numeroGuia;
+
+    let idGuiaGrupo = '';
+    if (
+      guiaExistenteNoProc &&
+      !guiasUsadasNestaConsulta.has(guiaExistenteNoProc.toUpperCase())
+    ) {
+      idGuiaGrupo = guiaExistenteNoProc;
+    } else if (
+      indiceGrupo === 0 &&
+      !guiasUsadasNestaConsulta.has(guiaPrincipalPadrao.toUpperCase())
+    ) {
+      idGuiaGrupo = guiaPrincipalPadrao;
+    } else {
+      idGuiaGrupo = `G-${numConsBase}${indiceGrupo + 1}`;
+    }
+
+    guiasUsadasNestaConsulta.add(idGuiaGrupo.toUpperCase());
+
+    const guiaOperadoraInformada =
+      procsDoGrupo.find(
+        (p) => p.numeroGuiaOperadora && p.numeroGuiaOperadora.trim()
+      )?.numeroGuiaOperadora?.trim() ||
+      (indiceGrupo === 0 && consulta.numeroGuiaOperadora?.trim()
+        ? consulta.numeroGuiaOperadora.trim()
+        : '') ||
+      idGuiaGrupo;
+
+    const valorGrupo = procsDoGrupo.reduce(
+      (acc, p) => acc + (Number(p.valor) || 0),
+      0
+    );
+    const descricaoGrupo = procsDoGrupo.map((p) => p.descricao).join(' + ');
+    const tussGrupo =
+      procsDoGrupo[0]?.codigoTuss || consulta.codigoTuss || '10101012';
+
+    guiasGeradas.push({
+      ...consulta,
+      id: idGuiaGrupo,
+      numeroGuia: idGuiaGrupo,
+      numeroGuiaOperadora: guiaOperadoraInformada,
+      numeroGuiaPK: idGuiaGrupo,
+      consultaIdPK: consulta.id,
+      senhaAutorizacao: senhaGrupo,
+      codigoTuss: tussGrupo,
+      codigoTussPrincipal: tussGrupo,
+      descricao: descricaoGrupo,
+      procedimentos: procsDoGrupo.map((p) => ({
+        ...p,
+        senhaAutorizacao: senhaGrupo,
+        numeroGuia: idGuiaGrupo,
+        numeroGuiaOperadora:
+          p.numeroGuiaOperadora && p.numeroGuiaOperadora.trim()
+            ? p.numeroGuiaOperadora.trim()
+            : guiaOperadoraInformada
+      })),
+      valor: valorGrupo,
+      valorTotal: valorGrupo,
+      valorLiquido: valorGrupo,
+      desconto: undefined
+    });
+
+    indiceGrupo++;
+  });
+
+  return guiasGeradas;
 }
 
 export interface GuiaTussEditavel {
@@ -219,54 +435,6 @@ export interface GuiaTussEditavel {
   valor: number;
   desconto?: number;
   status: StatusGuiaTuss;
-}
-
-export type CategoriaClienteVIP =
-  | 'Influencer'
-  | 'Cliente VIP'
-  | 'Embaixador'
-  | 'Parceiro Marketing';
-
-export type StatusVisitaMarketing =
-  | 'Agendada'
-  | 'Confirmada'
-  | 'Realizada'
-  | 'Cancelada';
-
-export interface VisitaMarketing {
-  id: string;
-  data: string;
-  hora: string;
-  objetivo: string;
-  responsavel: string;
-  status: StatusVisitaMarketing;
-  observacoes?: string;
-}
-
-export interface ClienteVIP {
-  id: string;
-  foto: string;
-  nome: string;
-  sobrenome: string;
-  cpf: string;
-  telefone: string;
-  email: string;
-  dataNascimento: string;
-  endereco: string;
-  cidade: string;
-  categoriaVip: CategoriaClienteVIP;
-  redeSocial: string;
-  alcanceSeguidores: string;
-  assessorNome: string;
-  assessorTelefone: string;
-  assessorEmail: string;
-  numeroContrato: string;
-  vigenciaContrato: string;
-  valorPermutaMensal: number;
-  escopoMarketing: string;
-  clausulasContrato: string;
-  observacoes?: string;
-  datasVisitas: VisitaMarketing[];
 }
 
 export interface RegrasGestao {
@@ -312,8 +480,8 @@ export function aplicarCancelamentoAutomaticoAtendimentos(
   const listaSegura: Atendimento[] = Array.isArray(lista)
     ? lista
     : lista &&
-        typeof lista === 'object' &&
-        Array.isArray((lista as { listaAtualizada?: Atendimento[] }).listaAtualizada)
+      typeof lista === 'object' &&
+      Array.isArray((lista as { listaAtualizada?: Atendimento[] }).listaAtualizada)
       ? (lista as { listaAtualizada: Atendimento[] }).listaAtualizada
       : [];
 
@@ -357,113 +525,202 @@ export function aplicarCancelamentoAutomaticoAtendimentos(
   return { listaAtualizada, houveAlteracao };
 }
 
+export const PLANOS_PARTICULAR: string[] = ['Particular', 'VIP', 'MRKT'];
+
 export const OPERADORAS_PADRAO: Operadora[] = [
   {
     id: 'OP-01',
     nome: 'Bradesco Saúde',
     cnpj: '92.693.118/0001-60',
-    datasEnvio: [`${anoAtual}-${mesAtual}-05`, `${anoAtual}-${mesAtual}-20`]
+    datasEnvio: [`${anoAtual}-${mesAtual}-05`, `${anoAtual}-${mesAtual}-20`],
+    planos: [
+      'Bradesco Saúde Top Nacional Apartamento',
+      'Bradesco Saúde Top Nacional',
+      'Bradesco Saúde Nacional Plus',
+      'Bradesco Saúde Efetivo'
+    ]
   },
   {
     id: 'OP-02',
     nome: 'Unimed',
     cnpj: '48.090.146/0001-00',
-    datasEnvio: [`${anoAtual}-${mesAtual}-10`, `${anoAtual}-${mesAtual}-25`]
+    datasEnvio: [`${anoAtual}-${mesAtual}-10`, `${anoAtual}-${mesAtual}-25`],
+    planos: [
+      'Unimed Especial Nacional',
+      'Unimed Seguros Apartamento',
+      'Unimed Clássico Regional'
+    ]
   },
   {
     id: 'OP-03',
     nome: 'SulAmérica Saúde',
     cnpj: '01.685.053/0001-56',
-    datasEnvio: [`${anoAtual}-${mesAtual}-08`, `${anoAtual}-${mesAtual}-22`]
+    datasEnvio: [`${anoAtual}-${mesAtual}-08`, `${anoAtual}-${mesAtual}-22`],
+    planos: [
+      'SulAmérica Prestige',
+      'SulAmérica Executivo',
+      'SulAmérica Especial 100',
+      'SulAmérica Exato'
+    ]
   },
   {
     id: 'OP-04',
     nome: 'Amil',
     cnpj: '29.309.127/0001-79',
-    datasEnvio: [`${anoAtual}-${mesAtual}-12`, `${anoAtual}-${mesAtual}-28`]
+    datasEnvio: [`${anoAtual}-${mesAtual}-12`, `${anoAtual}-${mesAtual}-28`],
+    planos: [
+      'Amil One S2500 Executivo',
+      'Amil S750 Nacional',
+      'Amil S450 Apartamento',
+      'Amil Fácil'
+    ]
   }
 ];
 
+export function obterPlanosPorOperadora(
+  nomeOperadora: string,
+  operadoras: Operadora[] = OPERADORAS_PADRAO
+): string[] {
+  if (nomeOperadora === 'Particular') {
+    return PLANOS_PARTICULAR;
+  }
+  const opEncontrada = operadoras.find((o) => o.nome === nomeOperadora);
+  if (opEncontrada?.planos && opEncontrada.planos.length > 0) {
+    return opEncontrada.planos;
+  }
+  const padraoEncontrado = OPERADORAS_PADRAO.find((o) => o.nome === nomeOperadora);
+  if (padraoEncontrado?.planos && padraoEncontrado.planos.length > 0) {
+    return padraoEncontrado.planos;
+  }
+  return ['Executivo Nacional', 'Especial Apartamento', 'Básico Enfermaria'];
+}
+
+function formatarDataSimples(isoData: string): string {
+  const partes = isoData.slice(0, 10).split('-');
+  if (partes.length !== 3) return isoData;
+  return `${partes[2]}/${partes[1]}/${partes[0]}`;
+}
+
 export const DEMANDAS_INICIAIS: DemandaFinanceira[] = [
   {
-    id: 'FAT-4821',
+    id: 'LOTE-4821',
     operadora: 'Bradesco Saúde',
     descricao: 'Lote Oncologia Ambulatorial #42',
     tipoAtendimento: 'Oncologia / Terapia',
     dataCriacao: DATA_HOJE_ISO,
+    horaCriacao: '09:15',
     dataAlteracaoOuEnvio: `${DATA_HOJE_ISO}T09:15:00`,
     valor: 18500.0,
     status: 'Aberto',
     prioridade: 'Alta',
     atualizadoHa: `${DATA_HOJE_ISO}T09:15:00`,
     faturasEmitidas: false,
-    observacoes: 'Lote aberto aguardando emissão de faturas dos atendimentos.',
+    observacoes:
+      'Lote aberto com 2 guias (G-101 e G-102) da mesma consulta (CONS-902) com senhas de autorização distintas.',
     historicoLote: [
       {
         id: 'HLOT-01',
         dataHora: `${diaHoje}/${mesAtual}/${anoAtual} às 09:15`,
-        acao: 'Criação do Lote',
-        detalhes: 'Lote criado com status Aberto para alocação de guias a faturar.'
+        acao: 'Criação do Lote (LOTE-4821)',
+        detalhes:
+          'Lote criado com status Aberto contendo as guias G-101 (AUTH-884120) e G-102 (AUTH-884199).'
       }
     ],
     guias: [
       {
-        id: 'GUIA-101',
-        atendimentoId: 'ATD-902',
+        id: 'G-101',
+        atendimentoId: 'CONS-902',
+        senhaAutorizacao: 'AUTH-884120',
+        tipoAtendimento: 'Oncologia / Terapia',
         codigoTuss: '40304361',
         pacienteId: 'PAC-2002',
         pacienteNome: 'Roberto Almeida Prado',
         medicoNome: 'Dr. Eduardo Cavalcanti',
-        procedimento: 'Quimioterapia Infusional + Monitoramento Cardiológico',
+        procedimento: 'Quimioterapia Infusional Ciclo #01 + Monitoramento Cardiológico Contínuo',
+        procedimentos: [
+          {
+            id: 'PROC-G101-1',
+            codigoTuss: '40304361',
+            descricao: 'Quimioterapia Infusional Ciclo #01',
+            valor: 6200.0,
+            senhaAutorizacao: 'AUTH-884120',
+            numeroGuia: 'G-101'
+          },
+          {
+            id: 'PROC-G101-2',
+            codigoTuss: '20104090',
+            descricao: 'Monitoramento Cardiológico Contínuo em Infusão',
+            valor: 3600.0,
+            senhaAutorizacao: 'AUTH-884120',
+            numeroGuia: 'G-101'
+          }
+        ],
         data: DATA_HOJE_ISO,
         valor: 9800.0,
-        statusGuia: 'Confirmado'
+        statusGuia: 'Realizado'
       },
       {
-        id: 'GUIA-102',
-        atendimentoId: 'ATD-902',
+        id: 'G-102',
+        atendimentoId: 'CONS-902',
+        senhaAutorizacao: 'AUTH-884199',
+        tipoAtendimento: 'Oncologia / Terapia',
         codigoTuss: '20104294',
         pacienteId: 'PAC-2002',
         pacienteNome: 'Roberto Almeida Prado',
         medicoNome: 'Dr. Eduardo Cavalcanti',
-        procedimento: 'Ecocardiograma Transtorácico de Controle',
+        procedimento: 'Ecocardiograma Transtorácico de Controle Oncológico',
+        procedimentos: [
+          {
+            id: 'PROC-G102-1',
+            codigoTuss: '20104294',
+            descricao: 'Ecocardiograma Transtorácico de Controle Oncológico',
+            valor: 8700.0,
+            senhaAutorizacao: 'AUTH-884199',
+            numeroGuia: 'G-102'
+          }
+        ],
         data: DATA_HOJE_ISO,
         valor: 8700.0,
-        statusGuia: 'Confirmado'
+        statusGuia: 'Realizado'
       }
     ]
   },
   {
-    id: 'FAT-5190',
+    id: 'LOTE-5190',
     operadora: 'Unimed',
     descricao: 'Guias SADT Diagnóstico por Imagem #18',
     tipoAtendimento: 'SADT / Exames',
     dataCriacao: DATA_HOJE_ISO,
+    horaCriacao: '08:50',
     dataAlteracaoOuEnvio: `${DATA_HOJE_ISO}T10:30:00`,
     valor: 14200.5,
-    status: 'Faturada',
+    status: 'Fechado',
     prioridade: 'Alta',
     atualizadoHa: `${DATA_HOJE_ISO}T10:30:00`,
     faturasEmitidas: true,
-    observacoes: 'Faturas emitidas por atendimento e prontas para envio ao convênio.',
+    faturasEmitidasEm: `${diaHoje}/${mesAtual}/${anoAtual} às 10:30`,
+    observacoes: 'Faturas FAT-103 e FAT-104 emitidas por guia/senha e prontas para envio à operadora.',
     historicoLote: [
       {
         id: 'HLOT-02',
         dataHora: `${diaHoje}/${mesAtual}/${anoAtual} às 10:30`,
-        acao: 'Faturamento do Lote',
-        detalhes: 'Faturas geradas em PDF para os atendimentos vinculados.'
+        acao: 'Faturamento das Guias (Lote Fechado)',
+        detalhes: 'Faturas FAT-103 e FAT-104 geradas para as guias G-103 e G-104.'
       },
       {
         id: 'HLOT-03',
         dataHora: `${diaHoje}/${mesAtual}/${anoAtual} às 08:50`,
-        acao: 'Criação do Lote',
+        acao: 'Criação do Lote (LOTE-5190)',
         detalhes: 'Lote registrado para Unimed (SADT / Exames).'
       }
     ],
     guias: [
       {
-        id: 'GUIA-103',
-        atendimentoId: 'ATD-903',
+        id: 'G-103',
+        atendimentoId: 'CONS-903',
+        faturaId: 'FAT-103',
+        senhaAutorizacao: 'AUTH-551029',
+        tipoAtendimento: 'SADT / Exames',
         codigoTuss: '41101227',
         pacienteId: 'PAC-2003',
         pacienteNome: 'Marcos Vinícius Couto',
@@ -474,8 +731,11 @@ export const DEMANDAS_INICIAIS: DemandaFinanceira[] = [
         statusGuia: 'Realizado'
       },
       {
-        id: 'GUIA-104',
-        atendimentoId: 'ATD-905',
+        id: 'G-104',
+        atendimentoId: 'CONS-912',
+        faturaId: 'FAT-104',
+        senhaAutorizacao: 'AUTH-551088',
+        tipoAtendimento: 'SADT / Exames',
         codigoTuss: '41001095',
         pacienteId: 'PAC-2001',
         pacienteNome: 'Helena Vasconcelos',
@@ -483,35 +743,41 @@ export const DEMANDAS_INICIAIS: DemandaFinanceira[] = [
         procedimento: 'Angiotomografia de Coronárias e Doppler',
         data: DATA_HOJE_ISO,
         valor: 7400.0,
-        statusGuia: 'Confirmado'
+        statusGuia: 'Realizado'
       }
     ]
   },
   {
-    id: 'FAT-5812',
+    id: 'LOTE-5812',
     operadora: 'Bradesco Saúde',
     descricao: 'Lote Hemodinâmica e Cardiologia #11',
     tipoAtendimento: 'Cirurgia / Procedimento',
     dataCriacao: deslocarDiasISO(-3).data,
+    horaCriacao: '10:15',
     dataAlteracaoOuEnvio: deslocarDiasISO(-2, '11:05').iso,
     valor: 27900.0,
-    status: 'Enviada',
+    status: 'Enviado',
+    codigoEnvioOperadora: 'PROT-BRAD-992841',
     prioridade: 'Alta',
     atualizadoHa: deslocarDiasISO(-2, '11:05').iso,
     faturasEmitidas: true,
-    observacoes: 'Protocolo de envio confirmado junto ao portal da operadora.',
+    faturasEmitidasEm: `${formatarDataSimples(deslocarDiasISO(-2).data)} às 10:15`,
+    observacoes: 'Protocolo de envio PROT-BRAD-992841 confirmado junto ao portal da operadora.',
     historicoLote: [
       {
         id: 'HLOT-04',
         dataHora: `${formatarDataSimples(deslocarDiasISO(-2).data)} às 11:05`,
-        acao: 'Envio à Operadora',
-        detalhes: 'Lote enviado para pagamento junto à Bradesco Saúde.'
+        acao: 'Envio à Operadora (PROT-BRAD-992841)',
+        detalhes: 'Lote LOTE-5812 enviado com faturas FAT-105 e FAT-106 para Bradesco Saúde.'
       }
     ],
     guias: [
       {
-        id: 'GUIA-105',
-        atendimentoId: 'ATD-902',
+        id: 'G-105',
+        atendimentoId: 'CONS-913',
+        faturaId: 'FAT-105',
+        senhaAutorizacao: 'AUTH-774011',
+        tipoAtendimento: 'Cirurgia / Procedimento',
         codigoTuss: '30911079',
         pacienteId: 'PAC-2002',
         pacienteNome: 'Roberto Almeida Prado',
@@ -522,8 +788,11 @@ export const DEMANDAS_INICIAIS: DemandaFinanceira[] = [
         statusGuia: 'Realizado'
       },
       {
-        id: 'GUIA-106',
-        atendimentoId: 'ATD-905',
+        id: 'G-106',
+        atendimentoId: 'CONS-914',
+        faturaId: 'FAT-106',
+        senhaAutorizacao: 'AUTH-774055',
+        tipoAtendimento: 'Cirurgia / Procedimento',
         codigoTuss: '20201052',
         pacienteId: 'PAC-2001',
         pacienteNome: 'Helena Vasconcelos',
@@ -536,30 +805,42 @@ export const DEMANDAS_INICIAIS: DemandaFinanceira[] = [
     ]
   },
   {
-    id: 'FAT-6034',
+    id: 'LOTE-6034',
     operadora: 'SulAmérica Saúde',
     descricao: 'Internação Clínica Cirúrgica #07',
     tipoAtendimento: 'Internação',
     dataCriacao: deslocarDiasISO(-5).data,
+    horaCriacao: '16:00',
     dataAlteracaoOuEnvio: deslocarDiasISO(-4, '11:45').iso,
     valor: 22400.0,
-    status: 'Faturada',
-    prioridade: 'Média',
+    status: 'Glosado',
+    codigoEnvioOperadora: 'PROT-SULA-441092',
+    prioridade: 'Alta',
     atualizadoHa: deslocarDiasISO(-4, '11:45').iso,
     faturasEmitidas: true,
-    observacoes: 'Fatura emitida para conferência de materiais especiais (OPME).',
+    faturasEmitidasEm: `${formatarDataSimples(deslocarDiasISO(-5).data)} às 16:00`,
+    observacoes: 'Retorno da operadora apontando glosa técnica em material especial OPME.',
+    recurso: {
+      tipoGlosa: 'Técnica / Médica',
+      motivo: 'Glosa código 1804: Ausência de laudo justificativo para material especial na guia G-107 (FAT-107).',
+      justificativaRecurso: 'Anexado relatório cirúrgico detalhado e etiqueta de rastreabilidade ANVISA.',
+      dataAbertura: `${formatarDataSimples(deslocarDiasISO(-4).data)} às 11:45`
+    },
     historicoLote: [
       {
         id: 'HLOT-05',
         dataHora: `${formatarDataSimples(deslocarDiasISO(-4).data)} às 11:45`,
-        acao: 'Faturamento do Lote',
-        detalhes: 'Fatura gerada para o atendimento ATD-904.'
+        acao: 'Retorno de Glosa da Operadora',
+        detalhes: 'Lote LOTE-6034 marcado como Glosado (Técnica / Médica) para tratamento e reenvio.'
       }
     ],
     guias: [
       {
-        id: 'GUIA-107',
-        atendimentoId: 'ATD-904',
+        id: 'G-107',
+        atendimentoId: 'CONS-904',
+        faturaId: 'FAT-107',
+        senhaAutorizacao: 'AUTH-901244',
+        tipoAtendimento: 'Internação',
         codigoTuss: '10102019',
         pacienteId: 'PAC-2004',
         pacienteNome: 'Beatriz Nogueira Lima',
@@ -572,42 +853,47 @@ export const DEMANDAS_INICIAIS: DemandaFinanceira[] = [
     ]
   },
   {
-    id: 'FAT-7215',
+    id: 'LOTE-7215',
     operadora: 'Amil',
     descricao: 'Lote Pronto Atendimento Ortopedia #31',
     tipoAtendimento: 'Consulta',
     dataCriacao: deslocarDiasISO(-7).data,
+    horaCriacao: '13:20',
     dataAlteracaoOuEnvio: deslocarDiasISO(-6, '13:20').iso,
     valor: 9850.0,
-    status: 'Aberto',
+    status: 'Pendente',
     prioridade: 'Média',
     atualizadoHa: deslocarDiasISO(-6, '13:20').iso,
     faturasEmitidas: false,
-    observacoes: 'Lote aberto recebendo guias com status de faturar.',
+    observacoes: 'Pendente aguardando conferência de guia complementar ortopédica antes de fechar.',
     historicoLote: [
       {
         id: 'HLOT-06',
         dataHora: `${formatarDataSimples(deslocarDiasISO(-6).data)} às 13:20`,
-        acao: 'Alocação de Guias',
-        detalhes: 'Incluídas 2 guias de atendimento para faturamento em lote.'
+        acao: 'Alteração para Pendente',
+        detalhes: 'Lote LOTE-7215 colocado em condição Pendente aguardando revisão de guia específica.'
       }
     ],
     guias: [
       {
-        id: 'GUIA-108',
-        atendimentoId: 'ATD-905',
+        id: 'G-108',
+        atendimentoId: 'CONS-905',
+        senhaAutorizacao: 'AUTH-331902',
+        tipoAtendimento: 'Consulta',
         codigoTuss: '10101012',
         pacienteId: 'PAC-2001',
         pacienteNome: 'Helena Vasconcelos',
-        medicoNome: 'Dr. Rafael Bittencourt',
-        procedimento: 'Atendimento Ortopédico + Imobilização',
+        medicoNome: 'Dr. Eduardo Cavalcanti',
+        procedimento: 'Avaliação pré-operatória e risco cirúrgico',
         data: deslocarDiasISO(-7).data,
         valor: 4950.0,
-        statusGuia: 'Confirmado'
+        statusGuia: 'Realizado'
       },
       {
-        id: 'GUIA-109',
-        atendimentoId: 'ATD-903',
+        id: 'G-109',
+        atendimentoId: 'CONS-915',
+        senhaAutorizacao: 'AUTH-331950',
+        tipoAtendimento: 'Consulta',
         codigoTuss: '40804054',
         pacienteId: 'PAC-2003',
         pacienteNome: 'Marcos Vinícius Couto',
@@ -615,41 +901,39 @@ export const DEMANDAS_INICIAIS: DemandaFinanceira[] = [
         procedimento: 'Reavaliação Pós-Trauma e Raio-X Digital',
         data: deslocarDiasISO(-7).data,
         valor: 4900.0,
-        statusGuia: 'Confirmado'
+        statusGuia: 'Realizado'
       }
     ]
   }
 ];
 
-function formatarDataSimples(isoData: string): string {
-  const partes = isoData.slice(0, 10).split('-');
-  if (partes.length !== 3) return isoData;
-  return `${partes[2]}/${partes[1]}/${partes[0]}`;
-}
-
 export const GUIAS_PARTICULARES_INICIAIS: GuiaParticular[] = [
   {
-    id: 'GPART-1024',
-    atendimentoId: 'ATD-901',
-    tipoGuiaComplementar: 'Guia Principal',
+    id: 'G-901',
+    atendimentoId: 'CONS-901',
+    tipoGuia: 'Primeiro Atendimento',
+    tipoGuiaComplementar: 'Primeiro Atendimento',
     pacienteId: 'PAC-2001',
     paciente: 'Helena Vasconcelos',
     medicoNome: 'Dra. Larissa Peixoto',
     descricao: 'Mapeamento corporal e biópsia dermatológica',
     data: DATA_HOJE_ISO,
     nf: 'NF-e 004812',
+    comprovanteEmitido: true,
+    comprovanteCodigo: 'COMP-901-A',
     valorBruto: 1450.0,
     desconto: 100.0,
     valor: 1350.0,
     status: 'Pago',
     prioridade: 'Média',
     formaPagamento: 'PIX',
-    observacoes: 'Nota fiscal emitida e comprovante anexado.',
+    observacoes: 'Cobrança realizada na clínica (sem senha de operadora). Nota fiscal emitida.',
     atualizadoEm: `${DATA_HOJE_ISO}T09:40:00`
   },
   {
-    id: 'GPART-1089',
-    atendimentoId: 'ATD-901',
+    id: 'G-1089',
+    atendimentoId: 'CONS-901',
+    tipoGuia: 'Complementação',
     tipoGuiaComplementar: 'Complementação',
     pacienteId: 'PAC-2001',
     paciente: 'Helena Vasconcelos',
@@ -657,46 +941,50 @@ export const GUIAS_PARTICULARES_INICIAIS: GuiaParticular[] = [
     descricao: 'Análise Histopatológica Complementar #05',
     data: DATA_HOJE_ISO,
     nf: 'Pendente emissão',
+    comprovanteEmitido: false,
     valorBruto: 850.0,
     desconto: 50.0,
     valor: 800.0,
     status: 'Não pago',
     prioridade: 'Alta',
     formaPagamento: 'Cartão',
-    observacoes: 'Aguardando confirmação da operadora de cartão para emissão de NF.',
+    observacoes: 'Aguardando confirmação da operadora de cartão na clínica para emissão de NF.',
     atualizadoEm: `${DATA_HOJE_ISO}T11:20:00`
   },
   {
-    id: 'GPART-1142',
-    atendimentoId: 'ATD-906',
-    tipoGuiaComplementar: 'Guia Principal',
+    id: 'G-906',
+    atendimentoId: 'CONS-906',
+    tipoGuia: 'Retorno',
+    tipoGuiaComplementar: 'Retorno',
     pacienteId: 'PAC-2002',
     paciente: 'Roberto Almeida Prado',
     medicoNome: 'Dr. Rafael Bittencourt',
     descricao: 'Pacote Avaliação Postural e Ressonância Particular',
     data: deslocarDiasISO(-4).data,
     nf: 'NF-e 004790',
+    comprovanteEmitido: true,
+    comprovanteCodigo: 'COMP-906-B',
     valorBruto: 3120.0,
     desconto: 0,
     valor: 3120.0,
     status: 'Fechado',
     prioridade: 'Baixa',
     formaPagamento: 'Boleto',
-    loteId: 'LPART-501',
-    observacoes: 'Arquivado no lote particular para contabilidade.',
+    loteId: 'LOTE-501',
+    observacoes: 'Arquivado no lote particular LOTE-501 para contabilidade.',
     atualizadoEm: deslocarDiasISO(-3, '13:50').iso
   }
 ];
 
 export const LOTES_PARTICULARES_ARQUIVADOS_INICIAIS: LoteParticular[] = [
   {
-    id: 'LPART-501',
+    id: 'LOTE-501',
     descricao: 'Fechamento Caixa Particular — Semana 01',
     dataCriacao: deslocarDiasISO(-4).data,
     dataFechamento: deslocarDiasISO(-3, '13:50').iso,
     prioridade: 'Baixa',
     status: 'Fechado',
-    guiasIds: ['GPART-1142'],
+    guiasIds: ['G-906'],
     valorTotal: 3120.0,
     observacoes: 'Lote conferido e fechado para a contabilidade.'
   }
@@ -711,6 +999,8 @@ export const PROFISSIONAIS_INICIAIS: Profissional[] = [
     cargo: 'Médico Diretor Clínico',
     crm: '142.890',
     ufCrm: 'SP',
+    cbo: '225120',
+    percentualRepasse: 75,
     especialidade: 'Cardiologia',
     telefone: '(11) 99812-4401',
     email: 'eduardo.cavalcanti@gwaan.med.br',
@@ -725,6 +1015,8 @@ export const PROFISSIONAIS_INICIAIS: Profissional[] = [
     cargo: 'Médico Especialista',
     crm: '168.321',
     ufCrm: 'SP',
+    cbo: '225121',
+    percentualRepasse: 70,
     especialidade: 'Oncologia Clínica',
     telefone: '(11) 99745-8820',
     email: 'camila.montenegro@gwaan.med.br',
@@ -739,6 +1031,8 @@ export const PROFISSIONAIS_INICIAIS: Profissional[] = [
     cargo: 'Médico Cirurgião',
     crm: '155.904',
     ufCrm: 'SP',
+    cbo: '225270',
+    percentualRepasse: 75,
     especialidade: 'Ortopedia e Traumatologia',
     telefone: '(11) 99123-6590',
     email: 'rafael.bittencourt@gwaan.med.br',
@@ -753,6 +1047,8 @@ export const PROFISSIONAIS_INICIAIS: Profissional[] = [
     cargo: 'Médico Especialista',
     crm: '189.110',
     ufCrm: 'RJ',
+    cbo: '225135',
+    percentualRepasse: 70,
     especialidade: 'Dermatologia',
     telefone: '(21) 98841-2033',
     email: 'larissa.peixoto@gwaan.med.br',
@@ -764,9 +1060,11 @@ export const PROFISSIONAIS_INICIAIS: Profissional[] = [
     foto: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=160&auto=format&fit=crop&q=80',
     nome: 'Fernanda Siqueira',
     cpf: '418.209.331-72',
-    cargo: 'Coordenadora de Faturamento e Guias TISS',
+    cargo: 'Coordenadora de Faturamento e Auditoria TISS',
     crm: '',
     ufCrm: 'SP',
+    cbo: '142305',
+    percentualRepasse: 0,
     especialidade: '',
     telefone: '(11) 98520-1140',
     email: 'fernanda.siqueira@gwaan.med.br',
@@ -778,9 +1076,11 @@ export const PROFISSIONAIS_INICIAIS: Profissional[] = [
     foto: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=160&auto=format&fit=crop&q=80',
     nome: 'Gabriel Tavares',
     cpf: '391.440.982-05',
-    cargo: 'Gestor de Marketing e Relacionamento VIP',
+    cargo: 'Analista de Contas Médicas e Recursos de Glosa',
     crm: '',
     ufCrm: 'SP',
+    cbo: '411010',
+    percentualRepasse: 0,
     especialidade: '',
     telefone: '(11) 97411-8890',
     email: 'gabriel.tavares@gwaan.med.br',
@@ -801,7 +1101,10 @@ export const PACIENTES_INICIAIS: Paciente[] = [
     dataNascimento: '1986-04-18',
     endereco: 'Av. Paulista, 1450 - Bela Vista',
     cidade: 'São Paulo - SP',
-    observacoesClinicas: 'Paciente em acompanhamento preventivo anual. Sem alergias medicamentosas.'
+    convenioPadrao: 'Amil',
+    numeroCarteirinha: '849201140028190',
+    planoConvenio: 'Amil One S2500 Executivo',
+    observacoesClinicas: 'Elegibilidade ativa sem carência para SADT e procedimentos ambulatoriais.'
   },
   {
     id: 'PAC-2002',
@@ -814,7 +1117,10 @@ export const PACIENTES_INICIAIS: Paciente[] = [
     dataNascimento: '1974-09-03',
     endereco: 'Rua Oscar Freire, 820 - Jardins',
     cidade: 'São Paulo - SP',
-    observacoesClinicas: 'Check-up cardiológico semestral e controle de hipertensão leve.'
+    convenioPadrao: 'Bradesco Saúde',
+    numeroCarteirinha: '771009482100459',
+    planoConvenio: 'Bradesco Saúde Top Nacional Apartamento',
+    observacoesClinicas: 'Beneficiário corporativo — autorização prévia liberada para check-up cardiológico.'
   },
   {
     id: 'PAC-2003',
@@ -827,7 +1133,10 @@ export const PACIENTES_INICIAIS: Paciente[] = [
     dataNascimento: '1991-12-11',
     endereco: 'Av. Norte-Sul, 500 - Cambuí',
     cidade: 'Campinas - SP',
-    observacoesClinicas: 'Reabilitação ortopédica pós-lesão ligamentar de joelho.'
+    convenioPadrao: 'Unimed',
+    numeroCarteirinha: '006499201847102',
+    planoConvenio: 'Unimed Especial Nacional',
+    observacoesClinicas: 'Guias de infiltração ortopédica exigem anexo de laudo de imagem no envio do lote.'
   },
   {
     id: 'PAC-2004',
@@ -840,13 +1149,50 @@ export const PACIENTES_INICIAIS: Paciente[] = [
     dataNascimento: '1982-07-25',
     endereco: 'Rua Ministro Jesuíno Cardoso, 310 - Itaim Bibi',
     cidade: 'São Paulo - SP',
-    observacoesClinicas: 'Acompanhamento oncológico ambulatorial trimestral.'
+    convenioPadrao: 'SulAmérica Saúde',
+    numeroCarteirinha: '888120948571003',
+    planoConvenio: 'SulAmérica Prestige',
+    observacoesClinicas: 'Terapia oncológica de alto custo — senha de autorização TISS obrigatória.'
+  },
+  {
+    id: 'PAC-2005',
+    foto: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=160&auto=format&fit=crop&q=80',
+    nome: 'Carolina',
+    sobrenome: 'Mendes',
+    cpf: '451.820.339-14',
+    telefone: '(11) 98711-4402',
+    email: 'carolina.mendes@email.com.br',
+    dataNascimento: '1989-02-14',
+    endereco: 'Rua Haddock Lobo, 1300 - Cerqueira César',
+    cidade: 'São Paulo - SP',
+    convenioPadrao: 'Bradesco Saúde',
+    numeroCarteirinha: '771009991234801',
+    planoConvenio: 'Bradesco Saúde Nacional Plus',
+    observacoesClinicas: 'Guias de oncologia e exames cardiológicos com autorização prévia validada.'
+  },
+  {
+    id: 'PAC-2006',
+    foto: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=160&auto=format&fit=crop&q=80',
+    nome: 'Lucas',
+    sobrenome: 'Albuquerque',
+    cpf: '312.745.901-60',
+    telefone: '(11) 99340-1288',
+    email: 'lucas.albuquerque@email.com.br',
+    dataNascimento: '1979-11-28',
+    endereco: 'Av. República do Líbano, 990 - Moema',
+    cidade: 'São Paulo - SP',
+    convenioPadrao: 'Bradesco Saúde',
+    numeroCarteirinha: '771008450019283',
+    planoConvenio: 'Bradesco Saúde Top Nacional',
+    observacoesClinicas: 'Acompanhamento oncológico e SADT autorizado pela operadora.'
   }
 ];
 
 export const ATENDIMENTOS_INICIAIS: Atendimento[] = [
   {
-    id: 'ATD-901',
+    id: 'CONS-901',
+    numeroGuia: 'G-901',
+    tipoAtendimento: 'Cirurgia / Procedimento',
     codigoTuss: '30101239',
     pacienteId: 'PAC-2001',
     pacienteNome: 'Helena Vasconcelos',
@@ -859,7 +1205,8 @@ export const ATENDIMENTOS_INICIAIS: Atendimento[] = [
         id: 'PROC-01',
         codigoTuss: '30101239',
         descricao: 'Mapeamento corporal e biópsia dermatológica',
-        valor: 1450.0
+        valor: 1450.0,
+        numeroGuia: 'G-901'
       }
     ],
     data: deslocarDiasISO(-1).data,
@@ -872,7 +1219,8 @@ export const ATENDIMENTOS_INICIAIS: Atendimento[] = [
       {
         id: 'HIST-01',
         dataHora: `${diaHoje}/${mesAtual}/${anoAtual} às 08:45`,
-        valorAnterior: 1500.0,
+        descricaoAcao: 'Inclusão Procedimento 30101239 — Mapeamento corporal e biópsia dermatológica',
+        valorAnterior: 0,
         valorNovo: 1450.0,
         descontoAnterior: 0,
         descontoNovo: 100.0
@@ -880,82 +1228,111 @@ export const ATENDIMENTOS_INICIAIS: Atendimento[] = [
     ]
   },
   {
-    id: 'ATD-902',
-    codigoTuss: '10101012',
+    id: 'CONS-902',
+    numeroGuia: 'G-101',
+    senhaAutorizacao: 'AUTH-884120',
+    tipoAtendimento: 'Oncologia / Terapia',
+    codigoTuss: '40304361',
     pacienteId: 'PAC-2002',
     pacienteNome: 'Roberto Almeida Prado',
     medicoId: 'PROF-101',
     medicoNome: 'Dr. Eduardo Cavalcanti',
     especialidade: 'Cardiologia',
-    descricao: 'Consulta Cardiológica + Ecocardiograma Transtorácico',
+    descricao:
+      'Quimioterapia Infusional Ciclo #01 + Monitoramento Cardiológico Contínuo + Ecocardiograma Transtorácico de Controle Oncológico',
     procedimentos: [
       {
-        id: 'PROC-02',
-        codigoTuss: '10101012',
-        descricao: 'Consulta Cardiológica Especializada',
-        valor: 480.0
+        id: 'PROC-G101-1',
+        codigoTuss: '40304361',
+        descricao: 'Quimioterapia Infusional Ciclo #01',
+        valor: 6200.0,
+        senhaAutorizacao: 'AUTH-884120',
+        numeroGuia: 'G-101'
       },
       {
-        id: 'PROC-03',
-        codigoTuss: '40901106',
-        descricao: 'Ecocardiograma Transtorácico com Doppler',
-        valor: 500.0
+        id: 'PROC-G101-2',
+        codigoTuss: '20104090',
+        descricao: 'Monitoramento Cardiológico Contínuo em Infusão',
+        valor: 3600.0,
+        senhaAutorizacao: 'AUTH-884120',
+        numeroGuia: 'G-101'
+      },
+      {
+        id: 'PROC-G102-1',
+        codigoTuss: '20104294',
+        descricao: 'Ecocardiograma Transtorácico de Controle Oncológico',
+        valor: 8700.0,
+        senhaAutorizacao: 'AUTH-884199',
+        numeroGuia: 'G-102'
       }
     ],
     data: DATA_HOJE_ISO,
     hora: '10:15',
     operadora: 'Bradesco Saúde',
-    status: 'Confirmado',
-    valor: 980.0
+    status: 'Realizado',
+    valor: 18500.0
   },
   {
-    id: 'ATD-903',
-    codigoTuss: '30713137',
+    id: 'CONS-903',
+    numeroGuia: 'G-103',
+    senhaAutorizacao: 'AUTH-551029',
+    tipoAtendimento: 'SADT / Exames',
+    codigoTuss: '41101227',
     pacienteId: 'PAC-2003',
     pacienteNome: 'Marcos Vinícius Couto',
     medicoId: 'PROF-103',
     medicoNome: 'Dr. Rafael Bittencourt',
     especialidade: 'Ortopedia e Traumatologia',
-    descricao: 'Infiltração articular guiada e avaliação funcional',
+    descricao: 'Ressonância Magnética Articular + Infiltração Guiada',
     procedimentos: [
       {
         id: 'PROC-04',
-        codigoTuss: '30713137',
-        descricao: 'Infiltração articular guiada e avaliação funcional',
-        valor: 1200.0
+        codigoTuss: '41101227',
+        descricao: 'Ressonância Magnética Articular + Infiltração Guiada',
+        valor: 6800.5,
+        senhaAutorizacao: 'AUTH-551029',
+        numeroGuia: 'G-103'
       }
     ],
-    data: deslocarDiasISO(1).data,
+    data: DATA_HOJE_ISO,
     hora: '14:00',
     operadora: 'Unimed',
-    status: 'Agendado',
-    valor: 1200.0
+    status: 'Realizado',
+    valor: 6800.5
   },
   {
-    id: 'ATD-904',
-    codigoTuss: '20104294',
+    id: 'CONS-904',
+    numeroGuia: 'G-107',
+    senhaAutorizacao: 'AUTH-901244',
+    tipoAtendimento: 'Internação',
+    codigoTuss: '10102019',
     pacienteId: 'PAC-2004',
     pacienteNome: 'Beatriz Nogueira Lima',
     medicoId: 'PROF-102',
     medicoNome: 'Dra. Camila Montenegro',
     especialidade: 'Oncologia Clínica',
-    descricao: 'Sessão de Imunoterapia Supervisionada Ciclo #03',
+    descricao: 'Internação Hospital-Dia Oncológico + Medicação',
     procedimentos: [
       {
         id: 'PROC-05',
-        codigoTuss: '20104294',
-        descricao: 'Sessão de Imunoterapia Supervisionada Ciclo #03',
-        valor: 4600.0
+        codigoTuss: '10102019',
+        descricao: 'Internação Hospital-Dia Oncológico + Medicação',
+        valor: 22400.0,
+        senhaAutorizacao: 'AUTH-901244',
+        numeroGuia: 'G-107'
       }
     ],
-    data: deslocarDiasISO(-2).data,
+    data: deslocarDiasISO(-5).data,
     hora: '15:30',
     operadora: 'SulAmérica Saúde',
     status: 'Realizado',
-    valor: 4600.0
+    valor: 22400.0
   },
   {
-    id: 'ATD-905',
+    id: 'CONS-905',
+    numeroGuia: 'G-108',
+    senhaAutorizacao: 'AUTH-331902',
+    tipoAtendimento: 'Consulta',
     codigoTuss: '10101012',
     pacienteId: 'PAC-2001',
     pacienteNome: 'Helena Vasconcelos',
@@ -968,120 +1345,199 @@ export const ATENDIMENTOS_INICIAIS: Atendimento[] = [
         id: 'PROC-06',
         codigoTuss: '10101012',
         descricao: 'Avaliação pré-operatória e risco cirúrgico',
-        valor: 650.0
+        valor: 4950.0,
+        senhaAutorizacao: 'AUTH-331902',
+        numeroGuia: 'G-108'
       }
     ],
-    data: deslocarDiasISO(2).data,
+    data: deslocarDiasISO(-7).data,
     hora: '18:00',
     operadora: 'Amil',
-    status: 'Confirmado',
-    valor: 650.0
+    status: 'Realizado',
+    valor: 4950.0
   },
   {
-    id: 'ATD-906',
+    id: 'CONS-906',
+    numeroGuia: 'G-906',
+    tipoAtendimento: 'Consulta',
     codigoTuss: '10101012',
     pacienteId: 'PAC-2002',
     pacienteNome: 'Roberto Almeida Prado',
     medicoId: 'PROF-103',
     medicoNome: 'Dr. Rafael Bittencourt',
     especialidade: 'Ortopedia e Traumatologia',
-    descricao: 'Retorno de avaliação postural e ressonância',
+    descricao: 'Pacote Avaliação Postural e Ressonância Particular',
     procedimentos: [
       {
         id: 'PROC-07',
         codigoTuss: '10101012',
-        descricao: 'Retorno de avaliação postural e ressonância',
-        valor: 550.0
+        descricao: 'Pacote Avaliação Postural e Ressonância Particular',
+        valor: 3120.0,
+        numeroGuia: 'G-906'
       }
     ],
-    data: deslocarDiasISO(-3).data,
+    data: deslocarDiasISO(-4).data,
     hora: '19:00',
     operadora: 'Particular',
-    status: 'Cancelado',
-    valor: 550.0,
+    status: 'Realizado',
+    valor: 3120.0,
     desconto: 0
-  }
-];
-
-export const CLIENTES_VIP_INICIAIS: ClienteVIP[] = [
-  {
-    id: 'VIP-3001',
-    foto: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=160&auto=format&fit=crop&q=80',
-    nome: 'Carolina',
-    sobrenome: 'Ferraz Alencar',
-    cpf: '372.819.504-21',
-    telefone: '(11) 99104-8821',
-    email: 'carolina@alencarmidia.com.br',
-    dataNascimento: '1994-06-14',
-    endereco: 'Rua Haddock Lobo, 1320 - Jardins',
-    cidade: 'São Paulo - SP',
-    categoriaVip: 'Influencer',
-    redeSocial: '@carolinaalencar.wellness',
-    alcanceSeguidores: '1,2M seguidores (Instagram & TikTok)',
-    assessorNome: 'Henrique Valadares (Agência Lumina Talent)',
-    assessorTelefone: '(11) 98230-4410',
-    assessorEmail: 'henrique@luminatalent.com.br',
-    numeroContrato: `CTR-MKT-${anoAtual}/014`,
-    vigenciaContrato: `01/01/${anoAtual} a 31/12/${anoAtual}`,
-    valorPermutaMensal: 8500.0,
-    escopoMarketing: '2 visitas presenciais/mês com cobertura de Reels institucional + 4 sequências de Stories sobre medicina preventiva e check-up executivo.',
-    clausulasContrato: '1. O(A) Parceiro(a) / Influencer compromete-se a realizar as publicações acordadas nas datas de visita registradas junto à equipe de marketing da Gwaan.\n2. Todos os procedimentos médicos e protocolos de bem-estar cobertos pela cota mensal seguem rigorosamente as normas éticas do CFM.\n3. O agendamento de visitas presenciais com equipe de filmagem deve ser alinhado com antecedência mínima de 72 horas pelo Assessor/Representante.',
-    observacoes: 'Embaixadora da campanha anual de Check-up Preventivo e Longevidade.',
-    datasVisitas: [
-      {
-        id: 'VIS-01',
-        data: `${anoAtual}-${mesAtual}-06`,
-        hora: '10:30',
-        objetivo: 'Gravação Reels Institucional — Check-up Cardiológico & Dermatologia',
-        responsavel: 'Gabriel Tavares / Dra. Larissa Peixoto',
-        status: 'Confirmada',
-        observacoes: 'Equipe de vídeo autorizada na recepção VIP.'
-      },
-      {
-        id: 'VIS-02',
-        data: `${anoAtual}-${mesAtual}-20`,
-        hora: '15:00',
-        objetivo: 'Visita de Acompanhamento + Stories Bastidores Clínica',
-        responsavel: 'Dr. Eduardo Cavalcanti',
-        status: 'Agendada',
-        observacoes: 'Alinhado com o assessor Henrique.'
-      }
-    ]
   },
   {
-    id: 'VIP-3002',
-    foto: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=160&auto=format&fit=crop&q=80',
-    nome: 'Thiago',
-    sobrenome: 'Castanho Bernardes',
-    cpf: '295.441.802-66',
-    telefone: '(11) 99402-1190',
-    email: 'thiago@bernardessports.com.br',
-    dataNascimento: '1989-11-22',
-    endereco: 'Av. Europa, 680 - Jardim Europa',
-    cidade: 'São Paulo - SP',
-    categoriaVip: 'Embaixador',
-    redeSocial: '@thiagobernardes.run',
-    alcanceSeguidores: '640K seguidores (Instagram & YouTube)',
-    assessorNome: 'Patrícia Lemos (P2 Assessoria Esportiva)',
-    assessorTelefone: '(11) 97654-3309',
-    assessorEmail: 'patricia@p2esportes.com.br',
-    numeroContrato: `CTR-MKT-${anoAtual}/029`,
-    vigenciaContrato: `01/03/${anoAtual} a 28/02/${anoAtual + 1}`,
-    valorPermutaMensal: 6200.0,
-    escopoMarketing: '1 visita mensal para avaliação ortopédica e performance + menção em vídeos de preparação para maratonas.',
-    clausulasContrato: '1. Parceria voltada à divulgação do núcleo de Ortopedia Esportiva e Reabilitação da Gwaan.\n2. Uso de imagem autorizado em mídias digitais institucionais durante a vigência contratual.',
-    observacoes: 'Atleta e criador de conteúdo de alta performance.',
-    datasVisitas: [
+    id: 'CONS-907',
+    numeroGuia: 'G-210',
+    senhaAutorizacao: 'AUTH-998120',
+    tipoAtendimento: 'Oncologia / Terapia',
+    codigoTuss: '20104090',
+    pacienteId: 'PAC-2002',
+    pacienteNome: 'Roberto Almeida Prado',
+    medicoId: 'PROF-102',
+    medicoNome: 'Dra. Camila Montenegro',
+    especialidade: 'Oncologia Clínica',
+    descricao: 'Infusão Imunobiológica Ambulatorial + PET-CT Oncológico de Controle',
+    procedimentos: [
       {
-        id: 'VIS-03',
-        data: `${anoAtual}-${mesAtual}-03`,
-        hora: '11:00',
-        objetivo: 'Avaliação Biomecânica + Conteúdo Ortopedia Esportiva',
-        responsavel: 'Dr. Rafael Bittencourt',
-        status: 'Realizada',
-        observacoes: 'Material publicado com alto engajamento.'
+        id: 'PROC-08',
+        codigoTuss: '20104090',
+        descricao: 'Infusão Imunobiológica Ambulatorial',
+        valor: 3800.0,
+        senhaAutorizacao: 'AUTH-998120',
+        numeroGuia: 'G-210'
+      },
+      {
+        id: 'PROC-09',
+        codigoTuss: '40304361',
+        descricao: 'PET-CT Oncológico de Controle (Senha Distinta)',
+        valor: 2450.0,
+        senhaAutorizacao: 'AUTH-998155',
+        numeroGuia: 'G-215'
       }
-    ]
+    ],
+    data: DATA_HOJE_ISO,
+    hora: '11:00',
+    operadora: 'Bradesco Saúde',
+    status: 'Realizado',
+    valor: 6250.0
+  },
+  {
+    id: 'CONS-908',
+    numeroGuia: 'G-211',
+    senhaAutorizacao: 'AUTH-445012',
+    tipoAtendimento: 'SADT / Exames',
+    codigoTuss: '41001095',
+    pacienteId: 'PAC-2003',
+    pacienteNome: 'Marcos Vinícius Couto',
+    medicoId: 'PROF-101',
+    medicoNome: 'Dr. Eduardo Cavalcanti',
+    especialidade: 'Cardiologia',
+    descricao: 'Teste Ergométrico Computadorizado + Monitorização Pelo Sistema Holter 24 Horas',
+    procedimentos: [
+      {
+        id: 'PROC-10',
+        codigoTuss: '41001095',
+        descricao: 'Teste Ergométrico Computadorizado',
+        valor: 620.0,
+        senhaAutorizacao: 'AUTH-445012',
+        numeroGuia: 'G-211'
+      },
+      {
+        id: 'PROC-11',
+        codigoTuss: '20102020',
+        descricao: 'Monitorização Pelo Sistema Holter 24 Horas',
+        valor: 580.0,
+        senhaAutorizacao: 'AUTH-445012',
+        numeroGuia: 'G-211'
+      }
+    ],
+    data: DATA_HOJE_ISO,
+    hora: '16:15',
+    operadora: 'Unimed',
+    status: 'Realizado',
+    valor: 1200.0
+  },
+  {
+    id: 'CONS-909',
+    numeroGuia: 'G-212',
+    senhaAutorizacao: 'AUTH-889301',
+    tipoAtendimento: 'Oncologia / Terapia',
+    codigoTuss: '20104090',
+    pacienteId: 'PAC-2005',
+    pacienteNome: 'Carolina Mendes',
+    medicoId: 'PROF-102',
+    medicoNome: 'Dra. Camila Montenegro',
+    especialidade: 'Oncologia Clínica',
+    descricao: 'Quimioterapia Ambulatorial Ciclo #02',
+    procedimentos: [
+      {
+        id: 'PROC-12',
+        codigoTuss: '20104090',
+        descricao: 'Quimioterapia Ambulatorial Ciclo #02',
+        valor: 5400.0,
+        senhaAutorizacao: 'AUTH-889301',
+        numeroGuia: 'G-212'
+      }
+    ],
+    data: DATA_HOJE_ISO,
+    hora: '11:45',
+    operadora: 'Bradesco Saúde',
+    status: 'Realizado',
+    valor: 5400.0
+  },
+  {
+    id: 'CONS-910',
+    numeroGuia: 'G-213',
+    senhaAutorizacao: 'AUTH-889450',
+    tipoAtendimento: 'Oncologia / Terapia',
+    codigoTuss: '40901106',
+    pacienteId: 'PAC-2006',
+    pacienteNome: 'Lucas Albuquerque',
+    medicoId: 'PROF-101',
+    medicoNome: 'Dr. Eduardo Cavalcanti',
+    especialidade: 'Cardiologia',
+    descricao: 'Avaliação Cardio-Oncológica e Ecocardiograma Doppler',
+    procedimentos: [
+      {
+        id: 'PROC-13',
+        codigoTuss: '40901106',
+        descricao: 'Avaliação Cardio-Oncológica e Ecocardiograma Doppler',
+        valor: 3200.0,
+        senhaAutorizacao: 'AUTH-889450',
+        numeroGuia: 'G-213'
+      }
+    ],
+    data: DATA_HOJE_ISO,
+    hora: '13:10',
+    operadora: 'Bradesco Saúde',
+    status: 'Realizado',
+    valor: 3200.0
+  },
+  {
+    id: 'CONS-911',
+    numeroGuia: 'G-214',
+    senhaAutorizacao: 'AUTH-559810',
+    tipoAtendimento: 'SADT / Exames',
+    codigoTuss: '41001095',
+    pacienteId: 'PAC-2005',
+    pacienteNome: 'Carolina Mendes',
+    medicoId: 'PROF-103',
+    medicoNome: 'Dr. Rafael Bittencourt',
+    especialidade: 'Ortopedia e Traumatologia',
+    descricao: 'Ressonância Magnética de Coluna Lombar',
+    procedimentos: [
+      {
+        id: 'PROC-14',
+        codigoTuss: '41001095',
+        descricao: 'Ressonância Magnética de Coluna Lombar',
+        valor: 1850.0,
+        senhaAutorizacao: 'AUTH-559810',
+        numeroGuia: 'G-214'
+      }
+    ],
+    data: DATA_HOJE_ISO,
+    hora: '15:00',
+    operadora: 'Unimed',
+    status: 'Realizado',
+    valor: 1850.0
   }
 ];
 

@@ -81,10 +81,16 @@ export function PacientesPage({
   const [dataNascimento, setDataNascimento] = useState<string>('');
   const [endereco, setEndereco] = useState<string>('');
   const [cidade, setCidade] = useState<string>('');
+  const [convenioPadrao, setConvenioPadrao] = useState<string>('Bradesco Saúde');
+  const [numeroCarteirinha, setNumeroCarteirinha] = useState<string>('');
+  const [planoConvenio, setPlanoConvenio] = useState<string>('');
   const [observacoesClinicas, setObservacoesClinicas] = useState<string>('');
   const [feedbackSalvo, setFeedbackSalvo] = useState<boolean>(false);
 
   const [modalNovoAberto, setModalNovoAberto] = useState<boolean>(false);
+  const [abaModalNovo, setAbaModalNovo] = useState<'pessoais' | 'convenio'>(
+    'pessoais'
+  );
 
   const [modalAtdPacienteAberto, setModalAtdPacienteAberto] = useState<boolean>(false);
   const [atendimentoEmFoco, setAtendimentoEmFoco] = useState<Atendimento | null>(null);
@@ -104,6 +110,9 @@ export function PacientesPage({
     setDataNascimento(pac.dataNascimento);
     setEndereco(pac.endereco);
     setCidade(pac.cidade);
+    setConvenioPadrao(pac.convenioPadrao || 'Bradesco Saúde');
+    setNumeroCarteirinha(pac.numeroCarteirinha || '');
+    setPlanoConvenio(pac.planoConvenio || '');
     setObservacoesClinicas(pac.observacoesClinicas ?? '');
     setFeedbackSalvo(false);
   }
@@ -123,6 +132,9 @@ export function PacientesPage({
     setDataNascimento('1990-01-01');
     setEndereco('');
     setCidade('');
+    setConvenioPadrao(operadoras[0]?.nome || 'Bradesco Saúde');
+    setNumeroCarteirinha('');
+    setPlanoConvenio('Nacional Executivo');
     setObservacoesClinicas('');
     setModalNovoAberto(true);
   }
@@ -130,7 +142,7 @@ export function PacientesPage({
   function salvarNovoPaciente(evento: FormEvent) {
     evento.preventDefault();
     if (!nome.trim() || !sobrenome.trim() || !cpf.trim()) {
-      alert('Preencha pelo menos Nome, Sobrenome e CPF do paciente!');
+      alert('Preencha pelo menos Nome, Sobrenome e CPF do beneficiário!');
       return;
     }
 
@@ -144,6 +156,9 @@ export function PacientesPage({
       dataNascimento,
       endereco: endereco.trim(),
       cidade: cidade.trim(),
+      convenioPadrao: convenioPadrao.trim(),
+      numeroCarteirinha: numeroCarteirinha.trim(),
+      planoConvenio: planoConvenio.trim(),
       observacoesClinicas: observacoesClinicas.trim()
     });
 
@@ -170,6 +185,9 @@ export function PacientesPage({
       dataNascimento,
       endereco: endereco.trim(),
       cidade: cidade.trim(),
+      convenioPadrao: convenioPadrao.trim(),
+      numeroCarteirinha: numeroCarteirinha.trim(),
+      planoConvenio: planoConvenio.trim(),
       observacoesClinicas: observacoesClinicas.trim()
     });
 
@@ -179,7 +197,7 @@ export function PacientesPage({
 
   if (pacienteAtivo) {
     const atendimentosDoPaciente = atendimentos.filter(
-      (a) => a.pacienteId === pacienteAtivo.id
+      (a) => a.pacienteId === pacienteAtivo.id && a.status === 'Realizado'
     );
     const totalInvestidoPaciente = atendimentosDoPaciente
       .filter((a) => a.status !== 'Cancelado')
@@ -208,10 +226,12 @@ export function PacientesPage({
 
             <div>
               <h1 style={{ fontSize: '1.6rem' }}>
-                Prontuário — {pacienteAtivo.nome} {pacienteAtivo.sobrenome}
+                Ficha do Beneficiário — {pacienteAtivo.nome} {pacienteAtivo.sobrenome}
               </h1>
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.86rem' }}>
-                ID do Paciente: <strong>{pacienteAtivo.id}</strong>
+                ID Beneficiário: <strong>{pacienteAtivo.id}</strong> • Convênio:{' '}
+                <strong>{convenioPadrao || 'Particular'}</strong> • Carteirinha TISS:{' '}
+                <strong>{numeroCarteirinha || 'Não informada'}</strong>
               </p>
             </div>
           </div>
@@ -292,7 +312,7 @@ export function PacientesPage({
           <div className="demandas-section">
             <div>
               <h2 style={{ fontSize: '1.15rem' }}>
-                Dados Cadastrais e Foto do Paciente
+                Dados Cadastrais, Convênio e Elegibilidade TISS
               </h2>
               <p
                 style={{
@@ -301,8 +321,8 @@ export function PacientesPage({
                   marginTop: '0.15rem'
                 }}
               >
-                Atualize a foto por upload ou tirando na hora, além dos dados cadastrais,
-                e-mail e clínicos de{' '}
+                Gerencie os dados cadastrais, convênio titular, número da carteirinha ANS/TISS
+                e regras de elegibilidade de{' '}
                 <strong>
                   {pacienteAtivo.nome} {pacienteAtivo.sobrenome}
                 </strong>
@@ -437,12 +457,70 @@ export function PacientesPage({
                 </div>
               </div>
 
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns:
+                    convenioPadrao === 'Particular' ? '1fr' : '1fr 1.2fr 1.2fr',
+                  gap: '0.75rem'
+                }}
+              >
+                <div className="form-group">
+                  <label>Convênio / Operadora Titular</label>
+                  <select
+                    className="form-input"
+                    value={convenioPadrao}
+                    onChange={(e) => {
+                      const novoConv = e.target.value;
+                      setConvenioPadrao(novoConv);
+                      if (novoConv === 'Particular') {
+                        setNumeroCarteirinha('');
+                        setPlanoConvenio('');
+                      }
+                    }}
+                  >
+                    {operadoras.map((op) => (
+                      <option key={op.id} value={op.nome}>
+                        {op.nome}
+                      </option>
+                    ))}
+                    <option value="Particular">Particular</option>
+                  </select>
+                </div>
+
+                {convenioPadrao !== 'Particular' && (
+                  <>
+                    <div className="form-group">
+                      <label>Nº Carteirinha TISS (CNS / Convênio)</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="Ex: 771009482100459"
+                        value={numeroCarteirinha}
+                        onChange={(e) => setNumeroCarteirinha(e.target.value)}
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label>Plano / Acomodação</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="Ex: Top Nacional Apartamento"
+                        value={planoConvenio}
+                        onChange={(e) => setPlanoConvenio(e.target.value)}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+
               <div className="form-group">
-                <label>Informações Adicionais / Observações do Paciente</label>
+                <label>Observações de Faturamento / Elegibilidade / Carência</label>
                 <textarea
                   className="form-input"
                   rows={3}
-                  placeholder="Adicione histórico clínico, convênio preferencial, alergias ou observações gerais..."
+                  placeholder="Informe regras de autorização prévia, validade de carteirinha, isenção de coparticipação ou anexos exigidos..."
                   value={observacoesClinicas}
                   onChange={(e) => setObservacoesClinicas(e.target.value)}
                 />
@@ -493,7 +571,7 @@ export function PacientesPage({
               >
                 <CalendarCheck size={18} color="#778873" />
                 <span>
-                  Histórico de Atendimentos de {pacienteAtivo.nome}{' '}
+                  Histórico de Consultas (CONS-nº) de {pacienteAtivo.nome}{' '}
                   {pacienteAtivo.sobrenome} ({atendimentosDoPaciente.length})
                 </span>
               </h2>
@@ -504,8 +582,8 @@ export function PacientesPage({
                   marginTop: '0.2rem'
                 }}
               >
-                Clique em qualquer atendimento para abrir o modal, visualizar ou imprimir a
-                Guia TUSS e editar informações.
+                Clique em qualquer consulta (CONS-nº) para abrir o modal,
+                visualizar ou imprimir as Guias (G-nº) e senhas de autorização.
               </p>
             </div>
 
@@ -518,7 +596,7 @@ export function PacientesPage({
               }}
             >
               <Plus size={16} />
-              <span>Adicionar Atendimento ao Paciente</span>
+              <span>Adicionar Consulta (CONS-nº) ao Paciente</span>
             </button>
           </div>
 
@@ -526,10 +604,10 @@ export function PacientesPage({
             <table className="demandas-table">
               <thead>
                 <tr>
-                  <th>Código Atd.</th>
+                  <th>Cód. Consulta (PK)</th>
                   <th>Médico Responsável</th>
                   <th>Especialidade</th>
-                  <th>Descrição do Atendimento</th>
+                  <th>Descrição da Consulta &Procedimentos</th>
                   <th>Data e Hora</th>
                   <th>Operadora</th>
                   <th>Valor</th>
@@ -547,7 +625,7 @@ export function PacientesPage({
                         padding: '2rem'
                       }}
                     >
-                      Este paciente ainda não possui atendimentos registrados.
+                      Este paciente ainda não possui consultas registradas.
                     </td>
                   </tr>
                 ) : (
@@ -563,7 +641,7 @@ export function PacientesPage({
                           setAtendimentoEmFoco(atd);
                           setModalAtdPacienteAberto(true);
                         }}
-                        title="Clique para abrir o atendimento e visualizar a Guia TUSS no modal"
+                        title="Clique para abrir a consulta (CONS-nº) e visualizar as Guias (G-nº) no modal"
                       >
                         <td style={{ fontWeight: 700, color: '#778873' }}>{atd.id}</td>
                         <td style={{ fontWeight: 600 }}>{atd.medicoNome}</td>
@@ -603,6 +681,7 @@ export function PacientesPage({
         {modalAtdPacienteAberto && (
           <ModalAtendimento
             atendimentoInicial={atendimentoEmFoco}
+            atendimentosExistentes={atendimentos}
             pacientes={pacientes}
             medicos={medicos}
             operadoras={operadoras}
@@ -671,17 +750,17 @@ export function PacientesPage({
       >
         <div>
           <h1 style={{ fontSize: '1.75rem', marginBottom: '0.35rem' }}>
-            Prontuário de Pacientes
+            Cadastro de Beneficiários e Elegibilidade TISS
           </h1>
           <p style={{ color: 'var(--text-secondary)' }}>
-            Clique em qualquer paciente para abrir as informações cadastrais, e-mail, foto
-            e histórico de atendimentos.
+            Consulte beneficiários, vínculo com operadoras ANS, número de carteirinha TISS e
+            histórico de contas médicas e guias emitidas.
           </p>
         </div>
 
         <button className="btn-primary" onClick={abrirModalNovoPaciente}>
           <Plus size={18} />
-          <span>Cadastrar Paciente</span>
+          <span>Cadastrar Beneficiário</span>
         </button>
       </div>
 
@@ -697,7 +776,7 @@ export function PacientesPage({
               }}
             >
               <Users size={18} color="#778873" />
-              <span>Pacientes Cadastrados ({pacientesFiltrados.length})</span>
+              <span>Beneficiários Cadastrados ({pacientesFiltrados.length})</span>
             </h2>
             <p
               style={{
@@ -706,7 +785,7 @@ export function PacientesPage({
                 marginTop: '0.2rem'
               }}
             >
-              Clique na linha do paciente para acessar sua ficha individual.
+              Clique na linha do beneficiário para conferir elegibilidade, carteirinha e contas vinculadas.
             </p>
           </div>
 
@@ -747,12 +826,12 @@ export function PacientesPage({
           <table className="demandas-table">
             <thead>
               <tr>
-                <th>Paciente</th>
+                <th>Beneficiário</th>
                 <th>ID</th>
-                <th>Telefone</th>
-                <th>Nascimento</th>
+                <th>Convênio / Carteirinha TISS</th>
+                <th>CPF / Nascimento</th>
                 <th>Cidade</th>
-                <th>Atendimentos</th>
+                <th>Contas / Guias</th>
                 <th>Ações</th>
               </tr>
             </thead>
@@ -773,7 +852,7 @@ export function PacientesPage({
               ) : (
                 pacientesFiltrados.map((pac) => {
                   const qtdAtd = atendimentos.filter(
-                    (a) => a.pacienteId === pac.id
+                    (a) => a.pacienteId === pac.id && a.status === 'Realizado'
                   ).length;
 
                   return (
@@ -807,12 +886,31 @@ export function PacientesPage({
                         </div>
                       </td>
                       <td style={{ fontWeight: 700, color: '#778873' }}>{pac.id}</td>
-                      <td>{pac.telefone}</td>
-                      <td>{formatarDataBR(pac.dataNascimento)}</td>
+                      <td>
+                        <span className="badge badge-faturado">
+                          {pac.convenioPadrao || 'Particular'}
+                        </span>
+                        <div
+                          style={{
+                            fontSize: '0.75rem',
+                            color: 'var(--text-secondary)',
+                            fontFamily: 'monospace',
+                            marginTop: '0.2rem'
+                          }}
+                        >
+                          {pac.numeroCarteirinha || 'Sem carteirinha'}
+                        </div>
+                      </td>
+                      <td>
+                        <div style={{ fontWeight: 500 }}>{pac.cpf}</div>
+                        <small style={{ color: 'var(--text-secondary)' }}>
+                          Nasc: {formatarDataBR(pac.dataNascimento)}
+                        </small>
+                      </td>
                       <td>{pac.cidade}</td>
                       <td>
                         <span className="badge badge-faturar">
-                          {qtdAtd} {qtdAtd === 1 ? 'atendimento' : 'atendimentos'}
+                          {qtdAtd} {qtdAtd === 1 ? 'conta/guia' : 'contas/guias'}
                         </span>
                       </td>
                       <td>
@@ -849,7 +947,14 @@ export function PacientesPage({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="modal-header">
-              <h3 style={{ fontSize: '1.2rem' }}>Cadastrar Novo Paciente</h3>
+              <div>
+                <h3 style={{ fontSize: '1.2rem' }}>
+                  Cadastrar Novo Paciente (Chave Primária PAC-nº)
+                </h3>
+                <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                  O código único PAC-nº será gerado automaticamente ao salvar o paciente.
+                </p>
+              </div>
               <button
                 type="button"
                 className="btn-realtime"
@@ -860,145 +965,232 @@ export function PacientesPage({
               </button>
             </div>
 
+            <div className="modal-abas">
+              <button
+                type="button"
+                className={`modal-aba-btn ${abaModalNovo === 'pessoais' ? 'active' : ''}`}
+                onClick={() => setAbaModalNovo('pessoais')}
+              >
+                <User size={15} />
+                <span>Dados Pessoais & Contato</span>
+              </button>
+              <button
+                type="button"
+                className={`modal-aba-btn ${abaModalNovo === 'convenio' ? 'active' : ''}`}
+                onClick={() => setAbaModalNovo('convenio')}
+              >
+                <FileText size={15} />
+                <span>Convênio, Carteirinha TISS & Observações</span>
+              </button>
+            </div>
+
             <form
               onSubmit={salvarNovoPaciente}
               style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}
             >
-              <PhotoPicker
-                fotoAtual={foto}
-                aoAlterarFoto={setFoto}
-                rotulo="Foto do Paciente (Upload ou Tirar na Hora)"
-              />
-
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 1fr',
-                  gap: '0.75rem'
-                }}
-              >
-                <div className="form-group">
-                  <label>Nome</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="Ex: Helena"
-                    value={nome}
-                    onChange={(e) => setNome(e.target.value)}
-                    required
+              {abaModalNovo === 'pessoais' ? (
+                <>
+                  <PhotoPicker
+                    fotoAtual={foto}
+                    aoAlterarFoto={setFoto}
+                    rotulo="Foto do Paciente (Upload ou Tirar na Hora)"
                   />
-                </div>
 
-                <div className="form-group">
-                  <label>Sobrenome</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="Ex: Vasconcelos"
-                    value={sobrenome}
-                    onChange={(e) => setSobrenome(e.target.value)}
-                    required
-                  />
-                </div>
-              </div>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1fr 1fr',
+                      gap: '0.75rem'
+                    }}
+                  >
+                    <div className="form-group">
+                      <label>Nome</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="Ex: Helena"
+                        value={nome}
+                        onChange={(e) => setNome(e.target.value)}
+                        required
+                      />
+                    </div>
 
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 1fr 1.2fr 1fr',
-                  gap: '0.75rem'
-                }}
-              >
-                <div className="form-group">
-                  <label>CPF</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="000.000.000-00"
-                    value={cpf}
-                    onChange={(e) => setCpf(formatarCPF(e.target.value))}
-                    required
-                  />
-                </div>
+                    <div className="form-group">
+                      <label>Sobrenome</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="Ex: Vasconcelos"
+                        value={sobrenome}
+                        onChange={(e) => setSobrenome(e.target.value)}
+                        required
+                      />
+                    </div>
+                  </div>
 
-                <div className="form-group">
-                  <label>Telefone</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="(11) 99999-0000"
-                    value={telefone}
-                    onChange={(e) => setTelefone(formatarTelefone(e.target.value))}
-                    required
-                  />
-                </div>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1fr 1fr 1.2fr 1fr',
+                      gap: '0.75rem'
+                    }}
+                  >
+                    <div className="form-group">
+                      <label>CPF</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="000.000.000-00"
+                        value={cpf}
+                        onChange={(e) => setCpf(formatarCPF(e.target.value))}
+                        required
+                      />
+                    </div>
 
-                <div className="form-group">
-                  <label>E-mail</label>
-                  <input
-                    type="email"
-                    className="form-input"
-                    placeholder="paciente@email.com.br"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                  />
-                </div>
+                    <div className="form-group">
+                      <label>Telefone</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="(11) 99999-0000"
+                        value={telefone}
+                        onChange={(e) =>
+                          setTelefone(formatarTelefone(e.target.value))
+                        }
+                        required
+                      />
+                    </div>
 
-                <div className="form-group">
-                  <label>Data de Nascimento</label>
-                  <input
-                    type="date"
-                    className="form-input"
-                    value={dataNascimento}
-                    onChange={(e) => setDataNascimento(e.target.value)}
-                    required
-                  />
-                </div>
-              </div>
+                    <div className="form-group">
+                      <label>E-mail</label>
+                      <input
+                        type="email"
+                        className="form-input"
+                        placeholder="paciente@email.com.br"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        required
+                      />
+                    </div>
 
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '2fr 1fr',
-                  gap: '0.75rem'
-                }}
-              >
-                <div className="form-group">
-                  <label>Endereço</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="Rua, Número, Bairro"
-                    value={endereco}
-                    onChange={(e) => setEndereco(e.target.value)}
-                    required
-                  />
-                </div>
+                    <div className="form-group">
+                      <label>Data de Nascimento</label>
+                      <input
+                        type="date"
+                        className="form-input"
+                        value={dataNascimento}
+                        onChange={(e) => setDataNascimento(e.target.value)}
+                        required
+                      />
+                    </div>
+                  </div>
 
-                <div className="form-group">
-                  <label>Cidade / UF</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="São Paulo - SP"
-                    value={cidade}
-                    onChange={(e) => setCidade(e.target.value)}
-                    required
-                  />
-                </div>
-              </div>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '2fr 1fr',
+                      gap: '0.75rem'
+                    }}
+                  >
+                    <div className="form-group">
+                      <label>Endereço</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="Rua, Número, Bairro"
+                        value={endereco}
+                        onChange={(e) => setEndereco(e.target.value)}
+                        required
+                      />
+                    </div>
 
-              <div className="form-group">
-                <label>Observações Clínicas Iniciais</label>
-                <textarea
-                  className="form-input"
-                  rows={2}
-                  placeholder="Informações adicionais..."
-                  value={observacoesClinicas}
-                  onChange={(e) => setObservacoesClinicas(e.target.value)}
-                />
-              </div>
+                    <div className="form-group">
+                      <label>Cidade / UF</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="São Paulo - SP"
+                        value={cidade}
+                        onChange={(e) => setCidade(e.target.value)}
+                        required
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns:
+                        convenioPadrao === 'Particular'
+                          ? '1fr'
+                          : '1fr 1.2fr 1.2fr',
+                      gap: '0.75rem'
+                    }}
+                  >
+                    <div className="form-group">
+                      <label>Convênio / Operadora</label>
+                      <select
+                        className="form-input"
+                        value={convenioPadrao}
+                        onChange={(e) => {
+                          const novoConv = e.target.value;
+                          setConvenioPadrao(novoConv);
+                          if (novoConv === 'Particular') {
+                            setNumeroCarteirinha('');
+                            setPlanoConvenio('');
+                          }
+                        }}
+                      >
+                        {operadoras.map((op) => (
+                          <option key={op.id} value={op.nome}>
+                            {op.nome}
+                          </option>
+                        ))}
+                        <option value="Particular">Particular</option>
+                      </select>
+                    </div>
+
+                    {convenioPadrao !== 'Particular' && (
+                      <>
+                        <div className="form-group">
+                          <label>Nº Carteirinha TISS</label>
+                          <input
+                            type="text"
+                            className="form-input"
+                            placeholder="Ex: 771009482100459"
+                            value={numeroCarteirinha}
+                            onChange={(e) => setNumeroCarteirinha(e.target.value)}
+                          />
+                        </div>
+
+                        <div className="form-group">
+                          <label>Plano / Acomodação</label>
+                          <input
+                            type="text"
+                            className="form-input"
+                            placeholder="Ex: Executivo Nacional"
+                            value={planoConvenio}
+                            onChange={(e) => setPlanoConvenio(e.target.value)}
+                          />
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="form-group">
+                    <label>Observações de Elegibilidade e Faturamento</label>
+                    <textarea
+                      className="form-input"
+                      rows={3}
+                      placeholder="Regras de autorização, validade da carteirinha..."
+                      value={observacoesClinicas}
+                      onChange={(e) => setObservacoesClinicas(e.target.value)}
+                    />
+                  </div>
+                </>
+              )}
 
               <div className="modal-footer">
                 <button
@@ -1010,7 +1202,7 @@ export function PacientesPage({
                 </button>
                 <button type="submit" className="btn-primary">
                   <Check size={16} />
-                  <span>Salvar Paciente</span>
+                  <span>Salvar Paciente (PAC-nº)</span>
                 </button>
               </div>
             </form>
